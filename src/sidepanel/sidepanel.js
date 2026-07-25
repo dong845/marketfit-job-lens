@@ -22,7 +22,7 @@ const fields = {
   agentProvider: byId("agentProvider"), apiKey: byId("apiKey"), cliBridgeMode: byId("cliBridgeMode"), apiProviderMode: byId("apiProviderMode"),
   apiModel: byId("apiModel"), accessRetryRow: byId("accessRetryRow"), jobEditorPanel: byId("jobEditorPanel"), jobTextEditor: byId("jobTextEditor"),
   jobTitleInput: byId("jobTitleInput"), jobCompanyInput: byId("jobCompanyInput"), jobLocationInput: byId("jobLocationInput"),
-  bridgeCommand: byId("bridgeCommand"), copyBridgeCommand: byId("copyBridgeCommand"),
+  bridgeCommand: byId("bridgeCommand"), copyBridgeCommand: byId("copyBridgeCommand"), appVersion: byId("appVersion"),
   reportRow: byId("reportRow"), openReport: byId("openReport")
 };
 const bridgeClient = createBridgeClient();
@@ -52,6 +52,9 @@ fields.cvPdf.addEventListener("change", loadResumePdf);
 fields.interfaceLanguage.addEventListener("change", changeLanguage);
 
 fields.bridgeCommand.textContent = BRIDGE_COMMAND;
+// Chrome keeps running an unpacked extension's previous code until it is reloaded,
+// so the loaded build has to be visible to tell "not fixed" from "not reloaded".
+fields.appVersion.textContent = `v${chrome.runtime.getManifest?.()?.version || "?"}`;
 initialize();
 
 /**

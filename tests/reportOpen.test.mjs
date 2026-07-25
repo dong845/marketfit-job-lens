@@ -48,7 +48,7 @@ function harness({ sessionStorage = true } = {}) {
   if (sessionStorage) storage.session = { async get() { return {}; }, async set(v) { calls.sessionSet.push(v); } };
 
   globalThis.chrome = {
-    runtime: { id: "test-extension-id", getURL: (path) => `chrome-extension://test/${path}` },
+    runtime: { id: "test-extension-id", getURL: (path) => `chrome-extension://test/${path}`, getManifest: () => ({ version: "0.7.0" }) },
     storage,
     tabs: { async query() { return [{ id: 1, url: "https://example.com/job" }]; }, async create(options) { calls.tabs.push(options); return { id: 2 }; } },
     scripting: { async executeScript() { return []; } },
