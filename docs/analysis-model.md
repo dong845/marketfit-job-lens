@@ -1,29 +1,47 @@
 # Analysis Model
 
-The interactive side-panel flow is AI-first as of version 0.5: it captures the current job only when the user explicitly starts AI analysis, and it renders the cited AI result rather than a separate deterministic decision. The deterministic modules below remain documented and regression-tested as conservative internal evidence utilities; they are not exposed as a second user-facing analysis action.
+Every conclusion the panel shows is produced by the selected model and tied to
+quoted source text. There is no second, local scoring path — an earlier keyword
+matcher was removed rather than kept as a fallback, because a heuristic presented
+as career advice is worse than no answer. `scripts/static-check.mjs` fails the
+build if one is reintroduced.
 
-## Decision order
+## Pipeline
 
-1. Assess CV and JD quality. Missing or short inputs return `insufficient`; no estimate is shown.
-2. Require confirmation when extraction confidence is low; no estimate is shown.
-3. Evaluate work authorization, active clearance, mandatory language, licence/registration, and explicit work-model conflicts independently from fit.
-4. Match only CV/profile evidence to explicit JD requirements. `targetRole` is used only as a career-direction preference.
-5. Use a range only when there is enough evidence and no hard blocker. The range is labelled as an evidence-based fit estimate, not interview likelihood.
+1. **Capture** — `src/extraction/tabCapture.js` injects a self-contained extractor
+   into the active tab, polls until the text stabilises, and keeps the best frame.
+   `src/extraction/extractJob.js` prefers Schema.org `JobPosting` JSON-LD, then
+   semantic selectors, then page text, and scores the result.
+   `validateCapturedJob` decides whether the text is a usable job description at
+   all; nothing is sent to a provider until it is.
+2. **Evidence blocks** — `bridge/src/evidenceBlocks.js` splits the CV and job text
+   into addressable `CV-nnn` / `JD-nnn` chunks. The model receives these blocks
+   and may cite only their IDs, so it cannot invent a quote.
+3. **Request** — `bridge/src/prompts.js` builds the prompt; the untrusted CV and
+   job text are fenced and labelled as data, never instructions.
+4. **Validation** — `bridge/src/schema.js` re-validates the reply: enum states,
+   list sizes, string lengths, and every evidence ref resolved back to a real
+   block. An unresolvable ref is dropped rather than displayed.
+5. **Render** — `src/ui/analysisView.js` turns validated evidence into markup.
 
-## Evidence semantics
+## Schemas
 
-CV evidence is classified as negative, mentioned, learning, applied, or outcome evidence. Examples: `I do not have Kubernetes experience` is negative evidence; a course is weak learning evidence; a project or work verb is applied evidence; an outcome plus a measurable result is outcome evidence. A bare keyword does not become verified expertise.
+`AGENT_EVIDENCE_SCHEMA` in `bridge/src/schema.js` is the single source of truth
+for the result shape and its bounds. Two derivations exist:
 
-The local matcher recognizes a small, explicit alias set for common technical terms, including `k8s`/Kubernetes, RAG/retrieval-augmented generation, LLM/large language model, and Go/Golang. It does not use embedding similarity or infer unmentioned transferable experience. AI analysis is the full-CV/full-JD semantic interpretation path; its output is accepted only when every cited quote is present verbatim in the submitted CV or job text.
+- **Full schema** (`outputSchemaJson`) goes to CLI providers, which accept the
+  constraint keywords.
+- **Wire schema** (`wireSchemaJson`) strips `minLength`, `maxLength`, `pattern`,
+  `minItems`, and `maxItems`, which OpenAI strict mode and Anthropic structured
+  outputs restrict. Nothing is lost: `parseAgentEvidence` enforces those bounds at
+  parse time regardless of what the provider was told.
 
-JD units are classified as required, preferred, responsibility, benefit, or context. Required gaps are high-impact gaps; preferred gaps are competitiveness notes and never hard blockers.
+`src/extraction/schema.js` defines `NormalizedJob`. It carries only fields that
+are actually consumed — the capture path deliberately does not parse requirements
+into structured records, because the model reads the raw text.
 
-## Authorization and compliance
+## What it does not do
 
-The sponsorship state machine is `explicit_no_sponsorship`, `existing_authorization_required`, `explicit_sponsorship`, or `ambiguous`. Contradictory positive and restrictive wording becomes `conflicting_evidence` and yields `verify_first`. A student/graduate status is a route to verify, not an unknown status. The extension does not decide OPT, STEM OPT, Graduate Route, orientation year, PGWP, or any other legal eligibility.
-
-Potential compliance-sensitive wording is shown separately for protected-attribute, immigration, security/export-control, and language-necessity questions. It never lowers a candidate score based on identity.
-
-## Limits
-
-The local rules do not infer unstated requirements, validate employer registries, verify visa eligibility, or predict interviews. Deadline urgency is supported only when a structured source supplies it; the current visible-page MVP does not claim to detect every deadline reliably.
+It does not predict interviews or offers, decide visa eligibility or legal status,
+or reason about protected traits. `AGENT_SYSTEM_POLICY` states these limits to the
+model, and the panel repeats them to the user next to every result.

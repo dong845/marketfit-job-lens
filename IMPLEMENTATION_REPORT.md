@@ -2,60 +2,67 @@
 
 ## Architecture
 
-- `src/extraction`: normalised job schema, JSON-LD parser, Greenhouse/Lever/Workday/generic-SPA selection, and semantic fallback.
-- `src/profile`: locally bundled PDF.js extraction, PDF safety limits, authorization schema, and CV evidence semantics.
-- `src/analysis`: input quality, requirement classification, sponsorship state machine, hard blockers, decision policy, and result schema.
-- `src/market`: dated claim store and a local-only employer-evidence interface.
-- `src/privacy`: v2 storage lifecycle and redaction preview.
-- `src/bridge` and `bridge/src`: optional origin-paired loopback Bridge client/server, provider adapters, and strict evidence schema.
-- `src/ui`: English/Chinese message structure, accessible side-panel rendering, findings/evidence details, profile/privacy controls.
+The extension is AI-first: it captures a job page, sends it with the PDF-derived
+CV to a model the user chooses, validates the reply, and renders it. There is no
+local scoring path.
 
-## P0 status
-
-| Item | Status |
+| Module | Responsibility |
 | --- | --- |
-| Insufficient evidence without a score | Complete |
-| Target-role evidence isolation | Complete |
-| Negation, learning, applied, outcome semantics | Complete local rule set |
-| Required vs preferred classification | Complete local rule set |
-| Sponsorship conflict/restrictive policy | Complete |
-| Independent hard blockers | Complete for authorization, clearance, language, licence, and explicit remote-only conflict |
-| Structured authorization profile and graduate route | Complete, with legal-route outcome deliberately unknown |
-| Compliance-sensitive wording and disclaimer | Complete |
+| `src/extraction` | Self-contained page extractor, JSON-LD / semantic / text fallbacks, and the quality gate that decides whether text is a usable job description |
+| `src/profile` | Locally bundled PDF.js extraction with size, page, and text limits |
+| `src/ai` | Direct provider calls from the panel, and the permission handling they require |
+| `src/bridge` | Client for the loopback bridge used by the CLI providers |
+| `src/ui` | English/Chinese strings and the pure analysis view |
+| `src/privacy` | Redaction preview for the optional payload |
+| `bridge/src` | Bridge server, provider adapters, model registry, prompt construction, and the evidence schema both callers validate against |
 
-## P1 status
+`bridge/src/models.js` is the single registry of selectable models and their
+output budgets, read by both the in-panel client and the bridge, so the two paths
+cannot drift.
 
-| Item | Status |
-| --- | --- |
-| JSON-LD, ATS, semantic, generic, manual extraction | Complete local adapters/fallbacks |
-| Decision-first output and optional range | Complete |
-| Transparent application priority | Complete; deadline input remains a conservative extension point |
-| Dated market claims | Complete for seven initial markets |
-| Privacy controls | Complete local MVP |
-| Local PDF CV flow | Complete: 15 MB/40-page guardrails, locally bundled PDF.js parser, no PDF/CV persistence, and image-only PDF warning |
-| Current-tab job flow | Complete: the single AI analysis action captures the active job tab; manual JD fields and the separate rule-analysis action are removed from the UI |
-| AI job analysis | Complete development/power-user Bridge for Codex CLI, Claude Code, OpenAI API, and Anthropic API; full-CV/full-JD cited role analysis, strengths, gaps, risks, tailoring, and interview preparation; API providers expose a session-only key and model choice only after selection |
-| Accessible concise side panel and evidence drawers | Complete |
-| Full empirical market/employer verification | Not implemented: deliberately returns unknown/manual verification |
-| Real anonymised golden dataset | Not implemented; required before public claims of accuracy |
+## Guarantees worth knowing
 
-## Test evidence
+- **Nothing sensitive is persisted.** Only the interface language and the bridge
+  pairing (port plus token) reach `chrome.storage`. CV text, the captured job, and
+  API keys live in the open panel and disappear with it. Asserted in
+  `tests/privacy.test.mjs`.
+- **The model cannot invent quotes.** It receives addressable `CV-nnn` / `JD-nnn`
+  evidence blocks and may cite only their IDs. Refs are resolved back to real
+  blocks during validation; unresolvable ones are dropped.
+- **Provider replies are untrusted.** Enum states, list sizes, and string lengths
+  are re-checked after parsing, independent of whatever schema the provider was
+  given.
+- **Job text is data, not instructions.** It is fenced and labelled as untrusted
+  in the prompt, and the system policy forbids acting on it.
 
-At the PDF/current-tab checkpoint, `npm test` covers PDF validation, local page-text extraction semantics, image-only-PDF rejection, current-tab injection, failure recovery, precise per-site permission requests, technical-alias matching, and cited AI-output validation in addition to the existing analysis/Bridge cases. `npm run lint` parses extension/Bridge modules, requires the locally bundled PDF parser/worker, checks loopback-only fixed host access plus per-site optional web access, rejects direct remote provider calls from the extension, and checks subprocess shell use. Re-run both commands after any release change.
+## Verification
 
-## Known limitations
+`npm test` runs the unit suite plus an end-to-end smoke test over the shipping
+path: snapshot → normalized job → validated request → parsed evidence.
+`npm run lint` runs syntax checks and the manifest/permission/endpoint assertions
+in `scripts/static-check.mjs`.
 
-- Capture is limited to the visible active page. On custom/low-confidence sites, open the full job page and retry; manual JD editing is deliberately not exposed in this workflow.
-- Scanned, password-protected, corrupted, or image-only resumes are not supported; upload a text-based, unlocked PDF.
-- ATS detection is adapter selection plus semantic fallback, not a complete DOM contract for every employer site.
-- Market claim URLs are official context sources, but rules/statistics can become stale and require refresh.
-- No legal, immigration, employer-registry, or visa-eligibility conclusion is made.
-- AI enhancement is a local development/power-user Bridge, not a production Native Messaging integration; it requires fresh Chrome Web Store and privacy review before public release.
-- No outcome calibration, applicant-tracking, automatic action, provider fallback, or legal/immigration conclusion exists.
+Two checks exist because their absence previously produced silent failures rather
+than test failures:
+
+- `tests/sidepanelBoot.test.mjs` imports the panel against a DOM built from the
+  real markup, so a stale element id fails the suite instead of blanking the panel.
+- `static-check.mjs` scans every source file for a reintroduced local scoring path.
+
+## Known limits
+
+- The Claude 5 structured-output path and the OpenAI strict-schema path have not
+  been exercised against live provider APIs from this repository. Both fall back
+  to plain prompted JSON if a provider rejects the schema.
+- Chrome grants `activeTab` per invocation, so switching tabs after opening the
+  panel requires either re-invoking the extension or granting the per-site
+  permission the panel offers.
 
 ## Recommended next steps
 
-1. Validate extraction against anonymised real examples and tighten site-specific adapters.
-2. Establish a claim-refresh owner and automated stale-claim report.
-3. Replace the development loopback Bridge with Native Messaging before broad public distribution, then complete privacy/legal review.
+1. Run one real analysis against each provider to confirm the structured-output
+   paths, then remove the fallback if it proves unnecessary.
+2. Validate extraction against anonymised real postings and tighten site adapters.
+3. Replace the development loopback Bridge with Native Messaging before broad
+   public distribution, then complete privacy/legal review.
 4. Run a small consented beta before Chrome Web Store publication.
