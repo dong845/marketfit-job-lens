@@ -1,57 +1,57 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createStorageService, purgeExpired } from "../src/privacy/storageService.js";
+import { readFileSync, readdirSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 import { buildRemoteTransmissionPreview } from "../src/privacy/redaction.js";
 
-function memoryStorage() {
-  const data = {};
-  return {
-    data,
-    async get(key) { return { [key]: data[key] }; },
-    async set(next) { Object.assign(data, next); },
-    async remove(keys) { for (const key of Array.isArray(keys) ? keys : [keys]) delete data[key]; }
-  };
+const root = fileURLToPath(new URL("..", import.meta.url));
+
+function collect(directory) {
+  return readdirSync(directory, { withFileTypes: true })
+    .flatMap((entry) => entry.isDirectory() ? collect(join(directory, entry.name)) : [join(directory, entry.name)]);
 }
 
-test("temporary mode does not save a profile and explicit save uses expiry", async () => {
-  const storage = memoryStorage();
-  const service = createStorageService(storage, () => new Date("2026-07-23T00:00:00.000Z"));
-  const initial = await service.initialize();
-  assert.equal(initial.mode, "temporary");
-  assert.equal(initial.savedProfile, null);
-  const saved = await service.saveProfile({ cvText: "Private CV evidence" }, 30);
-  assert.equal(saved.mode, "local_profile");
-  assert.equal(saved.savedProfile.expiresAt, "2026-08-22T00:00:00.000Z");
+/**
+ * The panel tells users their CV and API key never leave it. There is no longer a
+ * storage service to hold them — the persistence layer was removed along with the
+ * local analysis engine — so the guarantee now rests on nothing ever writing them.
+ * These tests assert that at the source level, since a regression would be a
+ * silent privacy break rather than a visible failure.
+ */
+test("nothing writes CV text or an API key to extension storage", () => {
+  const sources = collect(join(root, "src")).filter((file) => file.endsWith(".js"));
+  const writes = [];
+  for (const file of sources) {
+    const source = readFileSync(file, "utf8");
+    for (const match of source.matchAll(/storage\.\w+\.set\(([^;]*?)\)\s*;/gs)) {
+      writes.push({ file: file.replace(`${root}`, ""), argument: match[1] });
+    }
+  }
+  assert.ok(writes.length > 0, "expected to find the storage writes this test guards");
+  for (const { file, argument } of writes) {
+    assert.equal(/resume|cvText|apiKey|pairingCode/i.test(argument), false, `${file} writes sensitive data to storage: ${argument}`);
+  }
 });
 
-test("deleting all data leaves no CV/profile residue", async () => {
-  const storage = memoryStorage();
-  const service = createStorageService(storage);
-  await service.initialize();
-  await service.saveProfile({ cvText: "Sensitive resume text", targetRole: "Engineer" });
-  await service.deleteAll();
-  assert.equal(JSON.stringify(storage.data).includes("Sensitive resume text"), false);
-  assert.equal(Object.keys(storage.data).some((key) => key.startsWith("marketfit.")), false);
+test("the only persisted keys are the interface language and the bridge pairing", () => {
+  const sidepanel = readFileSync(join(root, "src/sidepanel/sidepanel.js"), "utf8");
+  const bridge = readFileSync(join(root, "src/bridge/bridgeClient.js"), "utf8");
+  assert.match(sidepanel, /const LOCALE_KEY = "marketfit\.locale\.v1"/);
+  assert.match(bridge, /const BRIDGE_STATE_KEY = "marketfit\.bridge\.v1"/);
+  // The bridge state is a port and a token, never a credential the user typed.
+  const pair = bridge.slice(bridge.indexOf("async pair("), bridge.indexOf("async health("));
+  assert.match(pair, /const state = \{ port: validPort, token: response\.token, pairedAt/);
+  assert.equal(pair.includes("pairingCode:"), false, "the one-time pairing code must not be persisted");
 });
 
-test("expired saved profiles return to temporary mode", () => {
-  const state = { mode: "local_profile", savedProfile: { profile: { cvText: "CV" }, expiresAt: "2026-01-01T00:00:00.000Z" } };
-  const cleaned = purgeExpired(state, new Date("2026-07-23T00:00:00.000Z"));
-  assert.equal(cleaned.mode, "temporary");
-  assert.equal(cleaned.savedProfile, null);
-});
-
-test("initialization persists expiry cleanup instead of leaving CV data on disk", async () => {
-  const storage = memoryStorage();
-  storage.data["marketfit.state.v2"] = {
-    mode: "local_profile",
-    savedProfile: { profile: { cvText: "Expired private CV" }, expiresAt: "2026-01-01T00:00:00.000Z" },
-    settings: { retentionDays: 90, remoteAnalysisEnabled: false, remoteConsent: false }
-  };
-  const service = createStorageService(storage, () => new Date("2026-07-23T00:00:00.000Z"));
-  await service.initialize();
-  assert.equal(JSON.stringify(storage.data).includes("Expired private CV"), false);
-  assert.equal(storage.data["marketfit.state.v2"].savedProfile, null);
+test("clearing the session removes the API key and every personal storage key", () => {
+  const sidepanel = readFileSync(join(root, "src/sidepanel/sidepanel.js"), "utf8");
+  const clear = sidepanel.slice(sidepanel.indexOf("async function clearSession"), sidepanel.indexOf("function renderCurrentJobSummary"));
+  assert.match(clear, /fields\.apiKey\.value = ""/);
+  assert.match(clear, /resume = null/);
+  assert.match(clear, /chrome\.storage\.local\.remove\(PERSONAL_STORAGE_KEYS\)/);
+  assert.match(clear, /bridgeClient\.disconnect\(\)/);
 });
 
 test("optional AI payload preview redacts common PII", () => {

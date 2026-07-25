@@ -11,7 +11,10 @@ test("extracts a Schema.org JobPosting before page-text fallbacks", () => {
   assert.equal(job.extraction.method, "schema_org_jsonld");
   assert.equal(job.title, "Platform Engineer");
   assert.equal(job.company, "Example");
-  assert.ok(job.requirements.some((item) => item.term === "kubernetes"));
+  // The model reads sourceText, so the JSON-LD description must survive HTML
+  // stripping intact rather than being parsed into fields nothing consumes.
+  assert.match(job.sourceText, /Kubernetes required/);
+  assert.equal(job.sourceText.includes("<p>"), false);
 });
 
 test("falls back to DOM text when JobPosting JSON-LD has no usable description", () => {

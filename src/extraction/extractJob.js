@@ -1,5 +1,4 @@
 import { createNormalizedJob } from "./schema.js";
-import { extractRequirements, extractSponsorshipState } from "../analysis/requirements.js";
 
 export function extractJob(snapshot = {}) {
   const jsonLdJob = parseJobPosting(snapshot.jsonLd || []);
@@ -42,26 +41,23 @@ export function sanitizeCapturedText(value) {
   }).join("\n").slice(0, 26000);
 }
 
+/**
+ * Capture deliberately stops at "is this a usable job description?". Structured
+ * requirement parsing used to run here too, but the analysis is done by the model
+ * from the raw text, so those fields were computed on every capture and never read.
+ */
 function enrich(base, snapshot, method, confidence, needsConfirmation) {
   const sourceText = base.sourceText || "";
-  const requirements = extractRequirements(sourceText);
-  const sponsorship = extractSponsorshipState(sourceText);
   const quality = validateCapturedJob({ sourceText, extraction: { confidence } });
   return createNormalizedJob({
     ...base,
     url: snapshot.url || "",
     capturedAt: snapshot.capturedAt || new Date().toISOString(),
-    requirements,
-    responsibilities: requirements.filter((item) => item.type === "responsibility").map((item) => item.text),
-    benefits: requirements.filter((item) => item.type === "benefit").map((item) => item.text),
-    visaStatements: sponsorship.evidenceRefs.map((item) => item.quote),
-    languageStatements: requirements.filter((item) => item.category === "language").map((item) => item.text),
     extraction: {
       method,
       confidence,
       needsConfirmation: needsConfirmation || !quality.ok,
       textLength: sourceText.length,
-      requirementCount: requirements.length,
       contentFingerprint: jobContentFingerprint(sourceText),
       qualityReasons: quality.reasons
     }

@@ -16,8 +16,13 @@ assert.deepEqual([...manifest.permissions].sort(), ["activeTab", "scripting", "s
 assert.deepEqual(manifest.host_permissions, ["http://127.0.0.1/*"], "Only the loopback Local AI Bridge is allowed.");
 assert.deepEqual(manifest.optional_host_permissions, ["http://*/*", "https://*/*"], "Website access must remain optional and requested per site.");
 
-const analyzer = readFileSync(join(root, "src/shared/analyzer.js"), "utf8");
-assert.equal(analyzer.includes("totalScore"), false, "The legacy total-score entry point must stay removed.");
+// The extension must not grow a second, non-AI scoring path: a keyword matcher
+// presented as career advice is worse than no answer. Analysis comes from the
+// model, with every claim tied to quoted CV or job-page text.
+for (const file of sourceFiles) {
+  const source = readFileSync(file, "utf8");
+  assert.equal(/\btotalScore\b|\bfitScore\b/.test(source), false, `${file} reintroduces a local scoring path.`);
+}
 const bridgeClientSource = readFileSync(join(root, "src/bridge/bridgeClient.js"), "utf8");
 const directApiSource = readFileSync(join(root, "src/ai/directApiClient.js"), "utf8");
 assert.match(bridgeClientSource, /http:\/\/127\.0\.0\.1/, "CLI requests must target loopback only.");

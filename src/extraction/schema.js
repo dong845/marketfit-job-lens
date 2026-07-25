@@ -1,20 +1,13 @@
-import { cleanText } from "../analysis/schemas.js";
-
 /** @typedef {Object} NormalizedJob
  * @property {string} title
  * @property {string} company
  * @property {string} location
  * @property {string} employmentType
  * @property {string} salary
- * @property {import('../analysis/requirements.js').Requirement[]} requirements
- * @property {string[]} responsibilities
- * @property {string[]} benefits
- * @property {string[]} visaStatements
- * @property {string[]} languageStatements
  * @property {string} url
  * @property {string} capturedAt
  * @property {string} sourceText
- * @property {{method:string, confidence:number, needsConfirmation:boolean, textLength?:number, requirementCount?:number, contentFingerprint?:string, qualityReasons?:string[]}} extraction
+ * @property {{method:string, confidence:number, needsConfirmation:boolean, textLength?:number, contentFingerprint?:string, qualityReasons?:string[]}} extraction
  */
 
 export function createNormalizedJob(input = {}) {
@@ -24,11 +17,6 @@ export function createNormalizedJob(input = {}) {
     location: cleanText(input.location),
     employmentType: cleanText(input.employmentType),
     salary: cleanText(input.salary),
-    requirements: Array.isArray(input.requirements) ? input.requirements : [],
-    responsibilities: Array.isArray(input.responsibilities) ? input.responsibilities : [],
-    benefits: Array.isArray(input.benefits) ? input.benefits : [],
-    visaStatements: Array.isArray(input.visaStatements) ? input.visaStatements : [],
-    languageStatements: Array.isArray(input.languageStatements) ? input.languageStatements : [],
     url: cleanText(input.url),
     capturedAt: input.capturedAt || new Date().toISOString(),
     sourceText: cleanSourceText(input.sourceText),
@@ -37,7 +25,6 @@ export function createNormalizedJob(input = {}) {
       confidence: Number(input.extraction?.confidence ?? 0.85),
       needsConfirmation: Boolean(input.extraction?.needsConfirmation),
       textLength: Number(input.extraction?.textLength ?? cleanSourceText(input.sourceText).length),
-      requirementCount: Number(input.extraction?.requirementCount ?? 0),
       contentFingerprint: cleanText(input.extraction?.contentFingerprint),
       qualityReasons: Array.isArray(input.extraction?.qualityReasons) ? input.extraction.qualityReasons.map(cleanText).filter(Boolean) : []
     }
@@ -48,6 +35,11 @@ export function validateNormalizedJob(job) {
   return Boolean(job) && typeof job.sourceText === "string" && job.extraction && Number.isFinite(job.extraction.confidence);
 }
 
+export function cleanText(value) {
+  return String(value ?? "").replace(/\s+/g, " ").trim();
+}
+
+/** Unlike cleanText, this keeps line breaks: they carry the section structure the model reads. */
 function cleanSourceText(value) {
   return String(value ?? "")
     .replace(/\u00a0/g, " ")
