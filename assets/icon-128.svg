@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128" role="img" aria-label="MarketFit">
+  <rect width="128" height="128" rx="24" fill="#13201b"/>
+  <path d="M30 90V38h16.5L64 72.2 81.5 38H98v52H84.2V61.5L70.4 88h-12.8L43.8 61.5V90H30Z" fill="#f4f1e8"/>
+  <path d="M88 29.5l8 8 15-17" fill="none" stroke="#6fcf97" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

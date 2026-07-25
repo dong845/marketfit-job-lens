@@ -1,0 +1,415 @@
+import { resolveEvidenceRef } from "./evidenceBlocks.js";
+
+const PROVIDERS = new Set(["codex", "claude-code", "openai-api", "anthropic-api"]);
+const MATCH_STATES = new Set(["strong", "partial", "gap", "no_evidence"]);
+const REQUIREMENT_LEVELS = new Set(["required", "preferred", "unclear"]);
+const EVIDENCE_SOURCES = new Set(["resume", "job"]);
+const GAP_SEVERITIES = new Set(["material", "moderate", "unknown"]);
+const ACTION_PRIORITIES = new Set(["now", "before_apply", "later"]);
+const OUTPUT_LANGUAGES = new Set(["en", "zh"]);
+const MAX_RESUME_LENGTH = 60000;
+const MAX_JOB_LENGTH = 60000;
+const MAX_REQUEST_LENGTH = 140000;
+
+const EVIDENCE_SCHEMA = Object.freeze({
+  type: "object",
+  additionalProperties: false,
+  required: ["ref"],
+  properties: {
+    ref: { type: "string", pattern: "^(CV|JD)-[0-9]{3}$" }
+  }
+});
+
+const CITED_ITEM_SCHEMA = Object.freeze({
+  type: "object",
+  additionalProperties: false,
+  required: ["title", "summary", "evidence"],
+  properties: {
+    title: { type: "string", minLength: 1, maxLength: 140 },
+    summary: { type: "string", minLength: 1, maxLength: 600 },
+    evidence: { type: "array", minItems: 1, maxItems: 4, items: EVIDENCE_SCHEMA }
+  }
+});
+
+export const AGENT_EVIDENCE_SCHEMA = Object.freeze({
+  type: "object",
+  additionalProperties: false,
+  required: ["overview", "requirements", "strengths", "gaps", "risks", "resumeTailoring", "interviewFocus", "uncertainties", "suggestedActions"],
+  properties: {
+    overview: {
+      type: "object",
+      additionalProperties: false,
+      required: ["jobFocus", "candidatePositioning", "fitNarrative", "evidence"],
+      properties: {
+        jobFocus: { type: "string", minLength: 1, maxLength: 650 },
+        candidatePositioning: { type: "string", minLength: 1, maxLength: 650 },
+        fitNarrative: { type: "string", minLength: 1, maxLength: 650 },
+        evidence: { type: "array", minItems: 2, maxItems: 6, items: EVIDENCE_SCHEMA }
+      }
+    },
+    requirements: {
+      type: "array",
+      maxItems: 12,
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["name", "level", "match", "evidence", "explanation"],
+        properties: {
+          name: { type: "string", minLength: 1, maxLength: 120 },
+          level: { type: "string", enum: ["required", "preferred", "unclear"] },
+          match: { type: "string", enum: ["strong", "partial", "gap", "no_evidence"] },
+          evidence: {
+            type: "array",
+            minItems: 1,
+            maxItems: 4,
+            items: EVIDENCE_SCHEMA
+          },
+          explanation: { type: "string", minLength: 1, maxLength: 500 }
+        }
+      }
+    },
+    strengths: { type: "array", maxItems: 5, items: CITED_ITEM_SCHEMA },
+    gaps: {
+      type: "array",
+      maxItems: 5,
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["title", "severity", "summary", "evidence"],
+        properties: {
+          title: { type: "string", minLength: 1, maxLength: 140 },
+          severity: { type: "string", enum: ["material", "moderate", "unknown"] },
+          summary: { type: "string", minLength: 1, maxLength: 600 },
+          evidence: { type: "array", minItems: 1, maxItems: 4, items: EVIDENCE_SCHEMA }
+        }
+      }
+    },
+    risks: {
+      type: "array",
+      maxItems: 5,
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["title", "severity", "summary", "evidence"],
+        properties: {
+          title: { type: "string", minLength: 1, maxLength: 140 },
+          severity: { type: "string", enum: ["material", "moderate", "unknown"] },
+          summary: { type: "string", minLength: 1, maxLength: 600 },
+          evidence: { type: "array", minItems: 1, maxItems: 4, items: EVIDENCE_SCHEMA }
+        }
+      }
+    },
+    resumeTailoring: {
+      type: "array",
+      maxItems: 5,
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["target", "recommendation", "evidence"],
+        properties: {
+          target: { type: "string", minLength: 1, maxLength: 140 },
+          recommendation: { type: "string", minLength: 1, maxLength: 600 },
+          evidence: { type: "array", minItems: 1, maxItems: 4, items: EVIDENCE_SCHEMA }
+        }
+      }
+    },
+    interviewFocus: {
+      type: "array",
+      maxItems: 5,
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["question", "rationale", "evidence"],
+        properties: {
+          question: { type: "string", minLength: 1, maxLength: 360 },
+          rationale: { type: "string", minLength: 1, maxLength: 500 },
+          evidence: { type: "array", minItems: 1, maxItems: 4, items: EVIDENCE_SCHEMA }
+        }
+      }
+    },
+    uncertainties: {
+      type: "array",
+      maxItems: 6,
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["type", "message", "evidence"],
+        properties: {
+          type: { type: "string", minLength: 1, maxLength: 80 },
+          message: { type: "string", minLength: 1, maxLength: 500 },
+          evidence: { type: "array", minItems: 1, maxItems: 4, items: EVIDENCE_SCHEMA }
+        }
+      }
+    },
+    suggestedActions: {
+      type: "array",
+      maxItems: 5,
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["action", "priority", "evidence"],
+        properties: {
+          action: { type: "string", minLength: 1, maxLength: 500 },
+          priority: { type: "string", enum: ["now", "before_apply", "later"] },
+          evidence: { type: "array", minItems: 1, maxItems: 4, items: EVIDENCE_SCHEMA }
+        }
+      }
+    }
+  }
+});
+
+export class BridgeError extends Error {
+  constructor(code, message, status = 400) {
+    super(message);
+    this.name = "BridgeError";
+    this.code = code;
+    this.status = status;
+  }
+}
+
+export function parseTaskRequest(value) {
+  const request = object(value, "Request body must be an object.");
+  const requestId = text(request.requestId, "requestId", 128);
+  const taskType = text(request.taskType, "taskType", 64);
+  if (taskType !== "analyze_job") throw new BridgeError("TASK_NOT_ALLOWED", "Only analyze_job is available in this read-only release.", 403);
+
+  const provider = text(request.provider, "provider", 40);
+  if (!PROVIDERS.has(provider)) throw new BridgeError("PROVIDER_INVALID", "The selected provider is not supported.");
+  const privacyMode = text(request.privacyMode, "privacyMode", 40);
+  if (privacyMode !== "provider_cloud") throw new BridgeError("PRIVACY_MODE_INVALID", "AI analysis requires explicit provider_cloud consent.");
+
+  const input = object(request.input, "input is required.");
+  const resumeText = text(input.resumeText, "resumeText", MAX_RESUME_LENGTH);
+  const job = object(input.job, "job is required.");
+  const jobDescription = text(job.description, "job description", MAX_JOB_LENGTH);
+  const candidate = object(input.candidate || {}, "candidate must be an object.");
+  const options = object(request.options || {}, "options must be an object.");
+  const model = optionalText(options.model, "options.model", 100);
+  const language = optionalText(options.language, "options.language", 8) || "en";
+  if (!OUTPUT_LANGUAGES.has(language)) throw new BridgeError("SCHEMA_INVALID", "options.language must be en or zh.");
+  const credential = parseCredential(provider, request.credential);
+
+  const normalized = {
+    requestId,
+    taskType,
+    provider,
+    privacyMode,
+    credential,
+    options: { model, language },
+    input: {
+      resumeText,
+      job: {
+        title: optionalText(job.title, "job.title", 240),
+        company: optionalText(job.company, "job.company", 240),
+        location: optionalText(job.location, "job.location", 240),
+        description: jobDescription,
+        url: optionalText(job.url, "job.url", 1200)
+      },
+      candidate: {
+        targetRole: optionalText(candidate.targetRole, "candidate.targetRole", 240),
+        workAuthorization: optionalText(candidate.workAuthorization, "candidate.workAuthorization", 80),
+        languages: arrayOfText(candidate.languages || [], "candidate.languages", 20, 80)
+      }
+    }
+  };
+
+  if (JSON.stringify(normalized).length > MAX_REQUEST_LENGTH) throw new BridgeError("PAYLOAD_TOO_LARGE", "The AI request is too large. Shorten the CV or job description.", 413);
+  return normalized;
+}
+
+export function parseAgentEvidence(value, request) {
+  const result = object(value, "Provider output must be a JSON object.");
+  const overview = object(result.overview, "overview must be an object.");
+  const requirements = Array.isArray(result.requirements) ? result.requirements : invalid("requirements must be an array.");
+  const strengths = Array.isArray(result.strengths) ? result.strengths : invalid("strengths must be an array.");
+  const gaps = Array.isArray(result.gaps) ? result.gaps : invalid("gaps must be an array.");
+  const risks = Array.isArray(result.risks) ? result.risks : invalid("risks must be an array.");
+  const resumeTailoring = Array.isArray(result.resumeTailoring) ? result.resumeTailoring : invalid("resumeTailoring must be an array.");
+  const interviewFocus = Array.isArray(result.interviewFocus) ? result.interviewFocus : invalid("interviewFocus must be an array.");
+  const uncertainties = Array.isArray(result.uncertainties) ? result.uncertainties : invalid("uncertainties must be an array.");
+  const suggestedActions = Array.isArray(result.suggestedActions) ? result.suggestedActions : invalid("suggestedActions must be an array.");
+  if (requirements.length > 12 || strengths.length > 5 || gaps.length > 5 || risks.length > 5 || resumeTailoring.length > 5 || interviewFocus.length > 5 || uncertainties.length > 6 || suggestedActions.length > 5) {
+    throw new BridgeError("OUTPUT_UNTRUSTED", "Provider output exceeds the allowed result size.");
+  }
+
+  return {
+    overview: {
+      jobFocus: text(overview.jobFocus, "overview.jobFocus", 650),
+      candidatePositioning: text(overview.candidatePositioning, "overview.candidatePositioning", 650),
+      fitNarrative: text(overview.fitNarrative, "overview.fitNarrative", 650),
+      evidence: parseEvidenceList(overview.evidence, request, "overview.evidence", 6, 2)
+    },
+    requirements: requirements.map((item) => parseRequirement(item, request)),
+    strengths: strengths.map((item) => parseCitedItem(item, request, "strength")),
+    gaps: gaps.map((item) => parseSeverityItem(item, request, "gap")),
+    risks: risks.map((item) => parseSeverityItem(item, request, "risk")),
+    resumeTailoring: resumeTailoring.map((item) => parseTailoringItem(item, request)),
+    interviewFocus: interviewFocus.map((item) => parseInterviewItem(item, request)),
+    uncertainties: uncertainties.map((item) => {
+      const uncertainty = object(item, "Each uncertainty must be an object.");
+      return {
+        type: text(uncertainty.type, "uncertainty.type", 80),
+        message: text(uncertainty.message, "uncertainty.message", 500),
+        evidence: parseEvidenceList(uncertainty.evidence, request, "uncertainty.evidence", 4)
+      };
+    }),
+    suggestedActions: suggestedActions.map((item) => parseAction(item, request))
+  };
+}
+
+export function parseJsonOutput(value) {
+  if (value && typeof value === "object" && !Array.isArray(value)) return value;
+  const textValue = extractJsonText(value);
+  try {
+    return JSON.parse(textValue);
+  } catch {
+    throw new BridgeError("OUTPUT_UNTRUSTED", "Provider did not return valid JSON.");
+  }
+}
+
+export function extractJsonText(value) {
+  const text = String(value || "").trim();
+  if (!text) throw new BridgeError("OUTPUT_UNTRUSTED", "Provider returned no JSON text.");
+  if (text.startsWith("```")) {
+    const stripped = text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
+    if (stripped.startsWith("{")) return stripped;
+  }
+  if (text.startsWith("{")) return text;
+  const start = text.indexOf("{");
+  const end = text.lastIndexOf("}");
+  if (start >= 0 && end > start) return text.slice(start, end + 1);
+  return text;
+}
+
+function parseRequirement(value, request) {
+  const requirement = object(value, "Each requirement must be an object.");
+  const level = text(requirement.level, "requirement.level", 20);
+  const match = text(requirement.match, "requirement.match", 20);
+  if (!REQUIREMENT_LEVELS.has(level) || !MATCH_STATES.has(match)) throw new BridgeError("OUTPUT_UNTRUSTED", "Provider returned an invalid requirement state.");
+  return {
+    name: text(requirement.name, "requirement.name", 120),
+    level,
+    match,
+    evidence: parseEvidenceList(requirement.evidence, request, "requirement.evidence", 4),
+    explanation: text(requirement.explanation, "requirement.explanation", 500)
+  };
+}
+
+function parseCitedItem(value, request, label) {
+  const item = object(value, `Each ${label} must be an object.`);
+  return {
+    title: text(item.title, `${label}.title`, 140),
+    summary: text(item.summary, `${label}.summary`, 600),
+    evidence: parseEvidenceList(item.evidence, request, `${label}.evidence`, 4)
+  };
+}
+
+function parseSeverityItem(value, request, label) {
+  const item = object(value, `Each ${label} must be an object.`);
+  const severity = text(item.severity, `${label}.severity`, 20);
+  if (!GAP_SEVERITIES.has(severity)) throw new BridgeError("OUTPUT_UNTRUSTED", `Provider returned an invalid ${label} severity.`);
+  return {
+    title: text(item.title, `${label}.title`, 140),
+    severity,
+    summary: text(item.summary, `${label}.summary`, 600),
+    evidence: parseEvidenceList(item.evidence, request, `${label}.evidence`, 4)
+  };
+}
+
+function parseTailoringItem(value, request) {
+  const item = object(value, "Each resumeTailoring item must be an object.");
+  return {
+    target: text(item.target, "resumeTailoring.target", 140),
+    recommendation: text(item.recommendation, "resumeTailoring.recommendation", 600),
+    evidence: parseEvidenceList(item.evidence, request, "resumeTailoring.evidence", 4)
+  };
+}
+
+function parseInterviewItem(value, request) {
+  const item = object(value, "Each interviewFocus item must be an object.");
+  return {
+    question: text(item.question, "interviewFocus.question", 360),
+    rationale: text(item.rationale, "interviewFocus.rationale", 500),
+    evidence: parseEvidenceList(item.evidence, request, "interviewFocus.evidence", 4)
+  };
+}
+
+function parseAction(value, request) {
+  const item = object(value, "Each suggested action must be an object.");
+  const priority = text(item.priority, "suggestedActions.priority", 30);
+  if (!ACTION_PRIORITIES.has(priority)) throw new BridgeError("OUTPUT_UNTRUSTED", "Provider returned an invalid action priority.");
+  return {
+    action: text(item.action, "suggestedActions.action", 500),
+    priority,
+    evidence: parseEvidenceList(item.evidence, request, "suggestedActions.evidence", 4)
+  };
+}
+
+function parseEvidenceList(value, request, label, maxItems, minItems = 1) {
+  const evidence = Array.isArray(value) ? value : [];
+  const resolved = evidence.slice(0, maxItems).flatMap((item) => {
+    try {
+      const parsed = parseEvidence(item, request);
+      return parsed ? [parsed] : [];
+    } catch {
+      return [];
+    }
+  });
+  if (resolved.length < minItems && evidence.length === 0) throw new BridgeError("OUTPUT_UNTRUSTED", `${label} needs ${minItems}-${maxItems} evidence references.`);
+  return resolved;
+}
+
+function parseEvidence(value, request) {
+  const evidence = object(value, "Each evidence item must be an object.");
+  if (evidence.ref !== undefined) {
+    const block = resolveEvidenceRef(text(evidence.ref, "evidence.ref", 20), request);
+    return block ? { source: block.source, quote: block.quote, ref: block.id } : null;
+  }
+  const source = text(evidence.source, "evidence.source", 20);
+  const quote = text(evidence.quote, "evidence.quote", 500);
+  if (!EVIDENCE_SOURCES.has(source)) return null;
+  const sourceText = source === "resume" ? request.input.resumeText : request.input.job.description;
+  return evidenceTextMatches(sourceText, quote) ? { source, quote } : null;
+}
+
+function evidenceTextMatches(sourceText, quote) {
+  const normalize = (value) => String(value || "").replace(/\s+/g, " ").replace(/[“”]/g, "\"").replace(/[‘’]/g, "'").trim().toLowerCase();
+  return normalize(sourceText).includes(normalize(quote));
+}
+
+function parseCredential(provider, value) {
+  const apiProvider = provider === "openai-api" || provider === "anthropic-api";
+  if (!apiProvider && value !== undefined) throw new BridgeError("CREDENTIAL_NOT_ALLOWED", "Local CLI providers use their own local authentication.");
+  if (!apiProvider) return null;
+  const credential = object(value, "An API key is required for this provider.");
+  if (credential.type !== "session_api_key") throw new BridgeError("CREDENTIAL_INVALID", "Only session_api_key credentials are accepted.");
+  const apiKey = text(credential.apiKey, "API key", 500);
+  if (apiKey.length < 12) throw new BridgeError("CREDENTIAL_INVALID", "The API key appears incomplete.");
+  return { type: "session_api_key", apiKey };
+}
+
+function object(value, message) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new BridgeError("SCHEMA_INVALID", message);
+  return value;
+}
+
+function text(value, label, maxLength) {
+  if (typeof value !== "string" || !value.trim()) throw new BridgeError("SCHEMA_INVALID", `${label} is required.`);
+  const normalized = value.trim();
+  if (normalized.length > maxLength) throw new BridgeError("SCHEMA_INVALID", `${label} is too long.`);
+  return normalized;
+}
+
+function optionalText(value, label, maxLength) {
+  if (value === undefined || value === null || value === "") return "";
+  return text(value, label, maxLength);
+}
+
+function arrayOfText(value, label, maxItems, maxLength) {
+  if (!Array.isArray(value) || value.length > maxItems) throw new BridgeError("SCHEMA_INVALID", `${label} must be a short list.`);
+  return value.map((item) => text(item, label, maxLength));
+}
+
+function invalid(message) {
+  throw new BridgeError("OUTPUT_UNTRUSTED", message);
+}
