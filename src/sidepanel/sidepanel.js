@@ -497,6 +497,10 @@ async function runAgentReview() {
     const stopTimer = startElapsedTimer(model);
     try {
       const response = isApiProvider(provider) ? await directApiClient.runTask(task) : await bridgeClient.runTask(task);
+      // Both routes answer with the same envelope. A missing result means the
+      // provider was paid and produced nothing usable, which must not be mistaken
+      // for a completed analysis.
+      if (!response?.result) throw new Error(t(locale, "analysisEmpty"));
       lastAgentEvidence = response.result;
       lastRunContext = { job, provider, model, generatedAt: new Date().toISOString() };
     } finally {

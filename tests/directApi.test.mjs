@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { readFileSync } from "node:fs";
 import { createDirectApiClient, DIRECT_PROVIDER_ORIGINS } from "../src/ai/directApiClient.js";
 import { MODELS } from "../bridge/src/models.js";
 
@@ -68,7 +69,7 @@ test("direct OpenAI API flow requests only its API host and keeps the key reques
     }
   });
 
-  const result = await client.runTask(apiRequest());
+  const { result } = await client.runTask(apiRequest());
   assert.equal(result.requirements[0].name, "Python");
   // runTask verifies access but must never prompt: by the time it runs, the gesture
   // is long gone (job capture has already awaited).
@@ -93,7 +94,7 @@ test("direct OpenAI API flow accepts nested Responses API output text", async ()
       }
     })
   });
-  const result = await client.runTask(apiRequest(), { accessVerified: true });
+  const { result } = await client.runTask(apiRequest());
   assert.equal(result.requirements[0].name, "Python");
 });
 
@@ -107,7 +108,7 @@ test("direct Anthropic API flow accepts fenced JSON text", async () => {
       }
     })
   });
-  const result = await client.runTask(apiRequest("anthropic-api", "claude-sonnet-4-6"), { accessVerified: true });
+  const { result } = await client.runTask(apiRequest("anthropic-api", "claude-sonnet-4-6"));
   assert.equal(result.suggestedActions[0].priority, "before_apply");
 });
 
@@ -117,4 +118,35 @@ test("direct provider access is rejected when the user declines the provider hos
     fetchImpl: async () => { throw new Error("must not fetch"); }
   });
   await assert.rejects(() => client.requestAccess("anthropic-api"), /was not allowed/);
+});
+
+test("both routes answer with the same envelope the panel reads", async () => {
+  // The panel does `lastAgentEvidence = response.result` for either route. The
+  // direct client used to return bare evidence, so response.result was undefined:
+  // the call was billed, the status said complete, the result area rendered blank,
+  // and the report had nothing to build from. Shipped broken since 0.6.10.
+  const client = createDirectApiClient({
+    permissionsApi: { async contains() { return true; } },
+    fetchImpl: async () => ({ ok: true, status: 200, async json() { return { output_text: JSON.stringify(validEvidence()) }; } })
+  });
+  const direct = await client.runTask(apiRequest());
+
+  // The shape the local bridge's /v1/tasks responds with.
+  const bridgeEnvelope = { requestId: "x", status: "completed", provider: "codex", result: {}, meta: { providerCloud: true, stored: false } };
+  assert.deepEqual(Object.keys(direct).sort(), Object.keys(bridgeEnvelope).sort());
+
+  assert.ok(direct.result, "response.result must carry the analysis");
+  assert.equal(direct.result.requirements[0].name, "Python");
+  assert.equal(direct.status, "completed");
+  assert.equal(direct.provider, "openai-api");
+  assert.equal(direct.requestId, "direct-api-test-1");
+});
+
+test("the panel treats a missing result as a failure, not a finished analysis", () => {
+  const sidepanel = readFileSync(new URL("../src/sidepanel/sidepanel.js", import.meta.url), "utf8");
+  const review = sidepanel.slice(sidepanel.indexOf("async function runAgentReview"), sidepanel.indexOf("function renderAnalysis"));
+  const guard = review.indexOf("if (!response?.result)");
+  const assign = review.indexOf("lastAgentEvidence = response.result");
+  assert.ok(guard > 0, "a missing result must be rejected");
+  assert.ok(guard < assign, "and rejected before it is treated as an analysis");
 });

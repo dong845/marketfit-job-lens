@@ -34,14 +34,31 @@ export function createDirectApiClient({ fetchImpl = globalThis.fetch, permission
     async requestAccess(provider) {
       await ensureProviderAccess(provider, permissionsApi);
     },
+    /**
+     * Returns the same envelope the local bridge's /v1/tasks responds with, so the
+     * panel has one contract regardless of which route produced the analysis.
+     * Returning bare evidence here meant `response.result` was undefined on the
+     * API-key path: the run was billed and reported as complete, but nothing
+     * rendered and there was no analysis to build a report from.
+     */
     async runTask(value) {
       const request = parseTaskRequest(value);
       if (!await hasProviderAccess(request.provider, permissionsApi)) {
         throw new DirectApiError("MarketFit cannot reach this provider yet. Select the provider again to grant access.");
       }
-      if (request.provider === "openai-api") return runOpenAi(request, fetchImpl);
-      if (request.provider === "anthropic-api") return runAnthropic(request, fetchImpl);
-      throw new DirectApiError("Direct API access is available only for API-key providers.");
+      if (request.provider !== "openai-api" && request.provider !== "anthropic-api") {
+        throw new DirectApiError("Direct API access is available only for API-key providers.");
+      }
+      const result = request.provider === "openai-api"
+        ? await runOpenAi(request, fetchImpl)
+        : await runAnthropic(request, fetchImpl);
+      return {
+        requestId: request.requestId,
+        status: "completed",
+        provider: request.provider,
+        result,
+        meta: { providerCloud: true, stored: false }
+      };
     }
   };
 }
