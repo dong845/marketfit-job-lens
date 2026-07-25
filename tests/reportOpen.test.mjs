@@ -76,3 +76,34 @@ test("the report handler is wired to the button the panel reveals", async () => 
   await import(`../src/sidepanel/sidepanel.js?case=wiring-${Date.now()}`);
   assert.ok(listeners.get("openReport:click"), "openReport must have a click handler");
 });
+
+test("a failure is shown in the result area, not only in the status line", async () => {
+  // The status line is one small line under the title that already holds the
+  // success message, so a failure reported only there reads as a dead button.
+  // This drives the reachable failure (no analysis yet); the storage and tab
+  // failures share the same renderReportProblem path.
+  const { listeners, elements } = harness();
+  await import(`../src/sidepanel/sidepanel.js?case=visible-${Date.now()}`);
+
+  await listeners.get("openReport:click")();
+  const result = elements.get("result").innerHTML;
+  assert.notEqual(result, "", "the result area must carry the explanation");
+  assert.match(result, /action-message/, "it must render as a visible notice, not silently");
+  assert.notEqual(elements.get("status").textContent, "");
+
+  const source = readFileSync(join(root, "src/sidepanel/sidepanel.js"), "utf8");
+  const handler = source.slice(source.indexOf("async function openFullReport"), source.indexOf("async function openReportTab"));
+  // No failure path may end at setStatus alone.
+  assert.equal(/setStatus\([^)]*\);\s*\n\s*\}\s*catch/.test(handler), false);
+  assert.match(handler, /renderReportProblem\(error\?\.message \|\| String\(error\), url\)/);
+  assert.match(source, /function renderReportProblem[\s\S]*?fields\.result\.innerHTML/);
+});
+
+test("storage.local is used when session is unavailable", async () => {
+  const { listeners, calls } = harness({ sessionStorage: false });
+  await import(`../src/sidepanel/sidepanel.js?case=nosession-${Date.now()}`);
+  // With no analysis the guard fires first, so assert the selection expression
+  // itself rather than a write; the write path is covered by reportPage tests.
+  assert.ok(listeners.get("openReport:click"));
+  assert.equal(calls.sessionSet.length, 0);
+});

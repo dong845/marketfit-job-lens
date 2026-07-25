@@ -529,35 +529,62 @@ function startElapsedTimer(model) {
 /**
  * Hands the result to a full-page report.
  *
- * The payload goes through chrome.storage.session rather than a blob URL: a blob
- * URL belongs to this panel document and is revoked when the panel closes, which
- * would break any report tab still open on it. Session storage clears itself when
- * the browser closes.
+ * The payload goes through extension storage rather than a blob URL: a blob URL
+ * belongs to this panel document and is revoked when the panel closes, which
+ * would break any report tab still open on it.
  *
- * Every failure here is reported. A button that does nothing when pressed is the
- * worst outcome, because there is nothing for the user to act on.
+ * Nothing here may fail quietly. Every failure used to go to setStatus alone — a
+ * single small line under the title that already held the success message — so a
+ * real error looked exactly like a dead button.
  */
 async function openFullReport() {
-  if (!lastAgentEvidence || !lastRunContext) {
-    return setStatus(t(locale, "reportNothingToShow"));
-  }
-  const session = chrome.storage?.session;
-  if (!session) return setStatus(t(locale, "reportFailed"));
+  if (!lastAgentEvidence || !lastRunContext) return renderReportProblem(t(locale, "reportNothingToShow"), "");
 
+  let url = "";
   try {
+    // session clears itself when the browser closes and is the right home for
+    // this; local is a fallback for builds where session is unavailable.
+    const store = chrome.storage?.session || chrome.storage?.local;
+    if (!store) throw new Error("chrome.storage is unavailable in this context.");
+
     const id = globalThis.crypto?.randomUUID?.() || String(Date.now());
-    await session.set({
+    await store.set({
       [reportKey(id)]: buildReportPayload({ ...lastRunContext, evidence: lastAgentEvidence, locale }),
       // Lets the page recover if it is ever opened without a usable query string.
       [LATEST_KEY]: id
     });
-    await pruneOldReports(session);
-    // Note: the query string is appended to the resolved URL, not passed through
-    // getURL(), which would percent-encode the "?" into a path that does not exist.
-    await chrome.tabs.create({ url: reportUrl(chrome.runtime.getURL("src/report/report.html"), id) });
+    await pruneOldReports(store);
+    url = reportUrl(chrome.runtime.getURL("src/report/report.html"), id);
+    await openReportTab(url);
+    setStatus(t(locale, "reportOpened"));
   } catch (error) {
-    setStatus(error?.message || t(locale, "reportFailed"));
+    renderReportProblem(error?.message || String(error), url);
   }
+}
+
+/** Two routes to the page, because a side panel can be restricted where a plain extension page is not. */
+async function openReportTab(url) {
+  try {
+    await chrome.tabs.create({ url });
+  } catch (tabsError) {
+    if (typeof globalThis.open !== "function") throw tabsError;
+    if (!globalThis.open(url, "_blank")) throw tabsError;
+  }
+}
+
+/**
+ * Problems land in the result area, where the user is already looking, and carry
+ * the report address so it can still be opened by hand. The analysis stays on
+ * screen underneath rather than being replaced by an error.
+ */
+function renderReportProblem(detail, url) {
+  const manual = url
+    ? `<p class="meta">${escapeHtml(t(locale, "reportOpenManually"))}</p><pre class="redaction-preview">${escapeHtml(url)}</pre>`
+    : "";
+  fields.result.innerHTML =
+    `<div class="empty action-message"><p><strong>${escapeHtml(t(locale, "reportFailed"))}</strong></p><p class="meta">${escapeHtml(detail)}</p>${manual}</div>`
+    + renderAnalysisHtml(lastAgentEvidence, locale);
+  setStatus(t(locale, "reportFailed"));
 }
 
 async function pruneOldReports(session) {

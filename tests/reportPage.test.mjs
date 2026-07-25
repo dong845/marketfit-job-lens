@@ -15,8 +15,10 @@ test("the report is handed over through session storage, not a blob URL", () => 
   // A blob URL is owned by the side-panel document and is revoked when that panel
   // closes, which would break any report tab still open on it.
   assert.equal(sidepanel.includes("createObjectURL"), false);
-  assert.match(sidepanel, /session\.set\(/);
-  assert.match(script, /chrome\.storage\.session\.get/);
+  assert.match(sidepanel, /chrome\.storage\?\.session \|\| chrome\.storage\?\.local/);
+  assert.match(sidepanel, /store\.set\(/);
+  // The page must read whichever store the panel was able to write to.
+  assert.match(script, /\[chrome\.storage\?\.session, chrome\.storage\?\.local\]/);
   // Both sides import the key names from payload.js; see reportPayload.test.mjs
   // for the URL construction the dead button came from.
   assert.match(sidepanel, /from "\.\.\/report\/payload\.js"/);

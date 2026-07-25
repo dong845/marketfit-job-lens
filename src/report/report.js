@@ -62,16 +62,24 @@ async function savedLocale() {
   }
 }
 
-/** Falls back to the most recent report when the link carries no usable id. */
+/**
+ * Falls back to the most recent report when the link carries no usable id, and
+ * checks both stores because the panel writes to local where session is missing.
+ */
 async function loadPayload(id) {
-  if (id) {
-    const stored = await chrome.storage.session.get(reportKey(id));
-    if (stored[reportKey(id)]) return stored[reportKey(id)];
+  const stores = [chrome.storage?.session, chrome.storage?.local].filter(Boolean);
+  for (const store of stores) {
+    if (id) {
+      const direct = await store.get(reportKey(id));
+      if (direct[reportKey(id)]) return direct[reportKey(id)];
+    }
+    const latest = await store.get(LATEST_KEY);
+    const latestId = latest[LATEST_KEY];
+    if (!latestId) continue;
+    const fallback = await store.get(reportKey(latestId));
+    if (fallback[reportKey(latestId)]) return fallback[reportKey(latestId)];
   }
-  const latest = await chrome.storage.session.get(LATEST_KEY);
-  if (!latest[LATEST_KEY]) return null;
-  const fallback = await chrome.storage.session.get(reportKey(latest[LATEST_KEY]));
-  return fallback[reportKey(latest[LATEST_KEY])] || null;
+  return null;
 }
 
 function fail(root, message) {
