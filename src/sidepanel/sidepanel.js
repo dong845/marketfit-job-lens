@@ -12,6 +12,7 @@ const LOCALE_KEY = "marketfit.locale.v1";
 const PERSONAL_STORAGE_KEYS = ["marketfit.state.v2", "marketfit.profile.v1", "marketfit.lastAnalysis.v1"];
 const BRIDGE_COMMAND = "npm run bridge -- --port 8765";
 const CLI_PROVIDER_LABELS = { codex: "codex", "claude-code": "claude" };
+const REPORT_PREFIX = "marketfit.report.";
 
 let locale = "en";
 const fields = {
@@ -21,7 +22,8 @@ const fields = {
   agentProvider: byId("agentProvider"), apiKey: byId("apiKey"), cliBridgeMode: byId("cliBridgeMode"), apiProviderMode: byId("apiProviderMode"),
   apiModel: byId("apiModel"), accessRetryRow: byId("accessRetryRow"), jobEditorPanel: byId("jobEditorPanel"), jobTextEditor: byId("jobTextEditor"),
   jobTitleInput: byId("jobTitleInput"), jobCompanyInput: byId("jobCompanyInput"), jobLocationInput: byId("jobLocationInput"),
-  bridgeCommand: byId("bridgeCommand"), copyBridgeCommand: byId("copyBridgeCommand")
+  bridgeCommand: byId("bridgeCommand"), copyBridgeCommand: byId("copyBridgeCommand"),
+  reportRow: byId("reportRow"), openReport: byId("openReport")
 };
 const bridgeClient = createBridgeClient();
 const directApiClient = createDirectApiClient();
@@ -30,6 +32,7 @@ let currentJob = null;
 let lastAgentEvidence = null;
 let pendingSiteOrigin = "";
 let agentRunActive = false;
+let lastRunContext = null;
 
 byId("clearSession").addEventListener("click", clearSession);
 byId("previewRedaction").addEventListener("click", toggleRedactionPreview);
@@ -43,6 +46,7 @@ byId("editJob").addEventListener("click", openJobEditor);
 byId("cancelJobEdit").addEventListener("click", closeJobEditor);
 byId("saveJobEdit").addEventListener("click", saveEditedJob);
 byId("retryProviderAccess").addEventListener("click", grantProviderAccess);
+byId("openReport").addEventListener("click", openFullReport);
 fields.copyBridgeCommand.addEventListener("click", copyBridgeCommand);
 fields.cvPdf.addEventListener("change", loadResumePdf);
 fields.interfaceLanguage.addEventListener("change", changeLanguage);
@@ -95,6 +99,7 @@ async function loadResumePdf() {
   const file = fields.cvPdf.files?.[0];
   resume = null;
   lastAgentEvidence = null;
+  fields.reportRow.hidden = true;
   renderEmpty();
   if (!file) return renderResumeStatus();
   fields.cvFileStatus.textContent = t(locale, "pdfReading");
@@ -190,6 +195,7 @@ async function clearSession() {
   fields.apiKey.value = "";
   fields.redactionPreview.hidden = true;
   fields.redactionPreview.textContent = "";
+  fields.reportRow.hidden = true;
   await bridgeClient.disconnect();
   await chrome.storage.local.remove(PERSONAL_STORAGE_KEYS);
   renderResumeStatus();
@@ -478,11 +484,18 @@ async function runAgentReview() {
       options: { language: locale, ...(isApiProvider(provider) ? { model: fields.apiModel.value } : {}) },
       input: { resumeText: resume.text, job: { title: job.title, company: job.company, location: job.location, description: job.sourceText, url: job.url || "" }, candidate: { targetRole: "", workAuthorization: fields.workAuthorization.value, languages: [] } }
     };
-    setStatus(t(locale, "requestingAi"));
+    const model = isApiProvider(provider) ? fields.apiModel.value : provider;
     renderActionMessage(t(locale, "requestingAi"));
-    const response = isApiProvider(provider) ? await directApiClient.runTask(task) : await bridgeClient.runTask(task);
-    lastAgentEvidence = response.result;
+    const stopTimer = startElapsedTimer(model);
+    try {
+      const response = isApiProvider(provider) ? await directApiClient.runTask(task) : await bridgeClient.runTask(task);
+      lastAgentEvidence = response.result;
+      lastRunContext = { job, provider, model, generatedAt: new Date().toISOString() };
+    } finally {
+      stopTimer();
+    }
     renderAnalysis(lastAgentEvidence);
+    fields.reportRow.hidden = false;
     setStatus(format(locale, "aiFinished", { provider }));
   } catch (error) {
     const message = error.message || t(locale, "pdfFailed");
@@ -495,6 +508,45 @@ async function runAgentReview() {
 }
 
 function renderAnalysis(evidence) { fields.result.innerHTML = renderAnalysisHtml(evidence, locale); }
+
+/**
+ * Reasoning models routinely take a minute or more on this prompt. Without a
+ * moving number the panel looks hung, and people reload or click again.
+ */
+function startElapsedTimer(model) {
+  const startedAt = Date.now();
+  const tick = () => setStatus(format(locale, "analysing", { provider: model, seconds: Math.round((Date.now() - startedAt) / 1000) }));
+  tick();
+  const handle = setInterval(tick, 1000);
+  return () => clearInterval(handle);
+}
+
+/**
+ * Hands the result to a full-page report. The payload goes through
+ * chrome.storage.session rather than a blob URL: a blob URL belongs to this panel
+ * document and is revoked when the panel closes, which would break any report tab
+ * still open. Session storage clears itself when the browser closes.
+ */
+async function openFullReport() {
+  if (!lastAgentEvidence || !lastRunContext) return;
+  try {
+    const id = globalThis.crypto?.randomUUID?.() || String(Date.now());
+    const { job, provider, model, generatedAt } = lastRunContext;
+    await chrome.storage.session.set({
+      [REPORT_PREFIX + id]: {
+        evidence: lastAgentEvidence,
+        job: { title: job.title, company: job.company, location: job.location, url: job.url },
+        provider,
+        model,
+        locale,
+        generatedAt
+      }
+    });
+    await chrome.tabs.create({ url: chrome.runtime.getURL(`src/report/report.html?id=${id}`) });
+  } catch (error) {
+    setStatus(error.message || t(locale, "reportFailed"));
+  }
+}
 function setStatus(message) { fields.status.textContent = message; }
 function qualityMessage(job) {
   const quality = validateCapturedJob(job);

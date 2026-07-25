@@ -60,8 +60,11 @@ test("the side panel boots and wires every control it references", async () => {
   globalThis.window = { confirm: () => false };
   globalThis.chrome = {
     runtime: { id: "test-extension-id", getURL: (path) => `chrome-extension://test/${path}` },
-    storage: { local: { async get() { return {}; }, async set() {}, async remove() {}, async setAccessLevel() {} } },
-    tabs: { async query() { return [{ id: 1, url: "https://example.com/job" }]; } },
+    storage: {
+      local: { async get() { return {}; }, async set() {}, async remove() {}, async setAccessLevel() {} },
+      session: { async get() { return {}; }, async set() {} }
+    },
+    tabs: { async query() { return [{ id: 1, url: "https://example.com/job" }]; }, async create() { return { id: 2 }; } },
     scripting: { async executeScript() { return []; } },
     permissions: { async contains() { return false; }, async request() { return false; } }
   };

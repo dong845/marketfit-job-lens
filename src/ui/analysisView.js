@@ -11,22 +11,23 @@ import { format, t } from "./i18n.js";
  * Evidence sits in disclosures rather than inline, so quotes are one click away
  * instead of burying every conclusion they support.
  */
-export function renderAnalysisHtml(evidence, locale) {
+export function renderAnalysisHtml(evidence, locale, { evidenceOpen = false } = {}) {
   if (!evidence) return "";
+  const open = evidenceOpen ? " open" : "";
   return [
     `<p class="analysis-note">${escapeHtml(t(locale, "aiSupplement"))}</p>`,
-    renderOverview(evidence.overview, locale),
-    renderRequirements(evidence.requirements, locale),
-    renderCards(t(locale, "aiStrengths"), evidence.strengths, (item) => titleAndSummary(item.title, item.summary), locale),
-    renderCards(t(locale, "aiGaps"), evidence.gaps, (item) => titleAndSummary(item.title, item.summary, severityTag(item.severity, locale)), locale),
-    renderActions(evidence.suggestedActions, locale),
+    renderOverview(evidence.overview, locale, open),
+    renderRequirements(evidence.requirements, locale, open),
+    renderCards(t(locale, "aiStrengths"), evidence.strengths, (item) => titleAndSummary(item.title, item.summary), locale, open),
+    renderCards(t(locale, "aiGaps"), evidence.gaps, (item) => titleAndSummary(item.title, item.summary, severityTag(item.severity, locale)), locale, open),
+    renderActions(evidence.suggestedActions, locale, open),
     renderGroup(t(locale, "sectionPrepare"), [
-      renderCards(t(locale, "resumeTailoring"), evidence.resumeTailoring, (item) => titleAndSummary(item.target, item.recommendation), locale, "sub"),
-      renderCards(t(locale, "interviewFocus"), evidence.interviewFocus, (item) => titleAndSummary(item.question, item.rationale), locale, "sub")
+      renderCards(t(locale, "resumeTailoring"), evidence.resumeTailoring, (item) => titleAndSummary(item.target, item.recommendation), locale, open, "sub"),
+      renderCards(t(locale, "interviewFocus"), evidence.interviewFocus, (item) => titleAndSummary(item.question, item.rationale), locale, open, "sub")
     ]),
     renderGroup(t(locale, "sectionVerify"), [
-      renderCards(t(locale, "aiRisks"), evidence.risks, (item) => titleAndSummary(item.title, item.summary, severityTag(item.severity, locale)), locale, "sub"),
-      renderCards(t(locale, "employerQuestions"), evidence.uncertainties, (item) => titleAndSummary(item.type, item.message), locale, "sub")
+      renderCards(t(locale, "aiRisks"), evidence.risks, (item) => titleAndSummary(item.title, item.summary, severityTag(item.severity, locale)), locale, open, "sub"),
+      renderCards(t(locale, "employerQuestions"), evidence.uncertainties, (item) => titleAndSummary(item.type, item.message), locale, open, "sub")
     ])
   ].filter(Boolean).join("");
 }
@@ -40,13 +41,13 @@ export function escapeHtml(value) {
     .replaceAll("'", "&#039;");
 }
 
-function renderOverview(overview, locale) {
+function renderOverview(overview, locale, open) {
   if (!overview) return "";
   return `<section class="result-card overview">
     ${textBlock(t(locale, "jobUnderstanding"), overview.jobFocus)}
     ${textBlock(t(locale, "candidatePositioning"), overview.candidatePositioning)}
     ${textBlock(t(locale, "fitNarrative"), overview.fitNarrative)}
-    ${renderEvidence(overview.evidence, locale)}
+    ${renderEvidence(overview.evidence, locale, open)}
   </section>`;
 }
 
@@ -54,7 +55,7 @@ const LEVEL_ORDER = { required: 0, preferred: 1, unclear: 2 };
 const MATCH_ORDER = { gap: 0, no_evidence: 1, partial: 2, strong: 3 };
 const MATCH_TONE = { strong: "ok", partial: "warn", gap: "bad", no_evidence: "muted" };
 
-function renderRequirements(requirements, locale) {
+function renderRequirements(requirements, locale, open) {
   if (!requirements?.length) {
     return `<section class="result-card"><h3>${escapeHtml(t(locale, "evidenceRequirements"))}</h3><p class="meta">${escapeHtml(t(locale, "noRequirements"))}</p></section>`;
   }
@@ -71,7 +72,7 @@ function renderRequirements(requirements, locale) {
         <span class="tag tag-${escapeHtml(tone)}">${escapeHtml(t(locale, matchKey(item.match)))}</span>
       </div>
       <p class="meta">${escapeHtml(t(locale, levelKey(item.level)))} · ${escapeHtml(item.explanation)}</p>
-      ${renderEvidence(item.evidence, locale)}
+      ${renderEvidence(item.evidence, locale, open)}
     </li>`;
   }).join("");
 
@@ -81,20 +82,20 @@ function renderRequirements(requirements, locale) {
 const PRIORITY_ORDER = { now: 0, before_apply: 1, later: 2 };
 const PRIORITY_TONE = { now: "bad", before_apply: "warn", later: "muted" };
 
-function renderActions(actions, locale) {
+function renderActions(actions, locale, open) {
   if (!actions?.length) return "";
   const sorted = [...actions].sort((a, b) => (PRIORITY_ORDER[a.priority] ?? 9) - (PRIORITY_ORDER[b.priority] ?? 9));
   const rows = sorted.map((item) => `<li class="action">
     <span class="tag tag-${escapeHtml(PRIORITY_TONE[item.priority] || "muted")}">${escapeHtml(t(locale, priorityKey(item.priority)))}</span>
     <p>${escapeHtml(item.action)}</p>
-    ${renderEvidence(item.evidence, locale)}
+    ${renderEvidence(item.evidence, locale, open)}
   </li>`).join("");
   return `<section class="result-card"><h3>${escapeHtml(t(locale, "suggestedActions"))}</h3><ul class="action-list">${rows}</ul></section>`;
 }
 
-function renderCards(title, items, renderItem, locale, variant = "") {
+function renderCards(title, items, renderItem, locale, open, variant = "") {
   if (!items?.length) return "";
-  const rows = items.map((item) => `<li>${renderItem(item)}${renderEvidence(item.evidence, locale)}</li>`).join("");
+  const rows = items.map((item) => `<li>${renderItem(item)}${renderEvidence(item.evidence, locale, open)}</li>`).join("");
   return `<section class="result-card ${escapeHtml(variant)}"><h3>${escapeHtml(title)}</h3><ul class="finding-list">${rows}</ul></section>`;
 }
 
@@ -118,10 +119,10 @@ function textBlock(title, value) {
   return `<h4>${escapeHtml(title)}</h4><p>${escapeHtml(value)}</p>`;
 }
 
-function renderEvidence(evidence, locale) {
+function renderEvidence(evidence, locale, open = "") {
   if (!evidence?.length) return "";
   const quotes = evidence.map((item) => `<blockquote><strong>${escapeHtml(item.source)}</strong><br />${escapeHtml(item.quote)}</blockquote>`).join("");
-  return `<details class="evidence"><summary>${escapeHtml(format(locale, "evidenceToggle", { count: evidence.length }))}</summary>${quotes}</details>`;
+  return `<details class="evidence"${open}><summary>${escapeHtml(format(locale, "evidenceToggle", { count: evidence.length }))}</summary>${quotes}</details>`;
 }
 
 function matchKey(match) {
