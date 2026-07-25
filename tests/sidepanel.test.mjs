@@ -103,15 +103,10 @@ test("model choices come from the shared registry, not a second hardcoded list",
   assert.equal(script.includes("gpt-5-mini"), false);
 });
 
-test("analysis output escapes every model-supplied string", () => {
-  const rendering = script.slice(script.indexOf("function renderAnalysis"), script.indexOf("// ------------------------------------------------------------------- bridge"));
-  // Any ${...} interpolation in the rendering block must be wrapped or a
-  // recognised safe helper; raw model text in innerHTML would be an injection.
-  const interpolations = [...rendering.matchAll(/\$\{([^}]+)\}/g)].map((match) => match[1].trim());
-  // renderItem is always one of the titleAndSummary-based callbacks, which escape
-  // their own inputs; the rest either escape directly or compose escaped fragments.
-  const safe = /^(escapeHtml|format|renderEvidence|renderCards|renderGroup|renderOverview|renderRequirements|renderActions|renderItem|textBlock|titleAndSummary|severityTag|rows|quotes|body|tag)\b/;
-  for (const expression of interpolations) {
-    assert.ok(safe.test(expression), `unescaped interpolation in analysis rendering: ${expression}`);
-  }
+test("analysis rendering lives in its own module, not inline in the panel", () => {
+  // Kept pure and separate so the layout is testable without a live DOM;
+  // tests/analysisView.test.mjs asserts the output itself.
+  assert.match(script, /import \{ escapeHtml, renderAnalysisHtml \} from "\.\.\/ui\/analysisView\.js"/);
+  assert.match(script, /function renderAnalysis\(evidence\) \{ fields\.result\.innerHTML = renderAnalysisHtml\(evidence, locale\); \}/);
+  assert.equal(script.includes("function renderRequirements"), false);
 });
