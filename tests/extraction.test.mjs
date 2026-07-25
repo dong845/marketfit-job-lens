@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { extractJob, hasUsableJobContent, sanitizeCapturedText } from "../src/extraction/extractJob.js";
+import { createManualJob, extractJob, hasUsableJobContent, sanitizeCapturedText } from "../src/extraction/extractJob.js";
+import { parseTaskRequest } from "../src/ai/schema.js";
 
 test("extracts a Schema.org JobPosting before page-text fallbacks", () => {
   const job = extractJob({
@@ -63,4 +64,31 @@ test("empty pages require manual confirmation", () => {
   const job = extractJob({ url: "https://example.com" });
   assert.equal(job.extraction.needsConfirmation, true);
   assert.equal(job.extraction.confidence, 0);
+});
+
+test("identity fields are capped at capture, not left to fail request validation", () => {
+  // Capture picks these with container-ish selectors ([class*='title'] and friends),
+  // so a hero block or an all-offices location list arrives hundreds of characters
+  // long. Uncapped, the run died at request validation naming an internal field, and
+  // re-opening the editor pre-filled the same value so it could only happen again.
+  const job = createManualJob({
+    title: "T".repeat(600),
+    company: "C".repeat(600),
+    location: "Amsterdam, ".repeat(60),
+    salary: "S".repeat(600),
+    employmentType: "E".repeat(600),
+    sourceText: "Requirements:\n- Python required for production services.\n- Kubernetes preferred.\nYou will own reliability for a clinical imaging pipeline and report to the platform lead."
+  });
+  assert.equal(job.title.length, 240);
+  assert.equal(job.company.length, 240);
+  assert.equal(job.location.length, 240);
+  assert.equal(job.salary.length, 240);
+  assert.equal(job.employmentType.length, 120);
+  // The parser that used to reject these now accepts the captured job unchanged.
+  assert.doesNotThrow(() => parseTaskRequest({
+    requestId: "cap-test", taskType: "analyze_job", provider: "openai-api", privacyMode: "provider_cloud",
+    credential: { type: "session_api_key", apiKey: "session-test-api-key-123" },
+    options: { model: "gpt-5-mini", language: "en" },
+    input: { resumeText: "Built Python services.", job: { title: job.title, company: job.company, location: job.location, employmentType: job.employmentType, salary: job.salary, description: job.sourceText }, candidate: {} }
+  }));
 });

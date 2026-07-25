@@ -1,6 +1,6 @@
 import { escapeHtml, renderAnalysisHtml } from "../ui/analysisView.js";
 import { t } from "../ui/i18n.js";
-import { LATEST_KEY, reportKey } from "./payload.js";
+import { readReport } from "./payload.js";
 
 const LOCALE_KEY = "marketfit.locale.v1";
 
@@ -47,8 +47,9 @@ async function render() {
       </dl>
       <button id="printReport" class="print-button" type="button">${escapeHtml(t(locale, "reportPrint"))}</button>
     </header>
-    <section class="report-body">${renderAnalysisHtml(evidence, locale)}</section>
-    <footer class="report-foot"><p>${escapeHtml(t(locale, "aiSupplement"))}</p></footer>`;
+    <!-- renderAnalysisHtml already closes with the AI disclaimer; a footer repeating
+         it printed the same paragraph twice, one line apart. -->
+    <section class="report-body">${renderAnalysisHtml(evidence, locale)}</section>`;
 
   document.getElementById("printReport").addEventListener("click", () => window.print());
 }
@@ -62,24 +63,9 @@ async function savedLocale() {
   }
 }
 
-/**
- * Falls back to the most recent report when the link carries no usable id, and
- * checks both stores because the panel writes to local where session is missing.
- */
-async function loadPayload(id) {
-  const stores = [chrome.storage?.session, chrome.storage?.local].filter(Boolean);
-  for (const store of stores) {
-    if (id) {
-      const direct = await store.get(reportKey(id));
-      if (direct[reportKey(id)]) return direct[reportKey(id)];
-    }
-    const latest = await store.get(LATEST_KEY);
-    const latestId = latest[LATEST_KEY];
-    if (!latestId) continue;
-    const fallback = await store.get(reportKey(latestId));
-    if (fallback[reportKey(latestId)]) return fallback[reportKey(latestId)];
-  }
-  return null;
+/** The lookup rule itself lives in payload.js, where it is testable without a DOM. */
+function loadPayload(id) {
+  return readReport([chrome.storage?.session, chrome.storage?.local], id);
 }
 
 function fail(root, message) {

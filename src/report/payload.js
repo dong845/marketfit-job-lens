@@ -13,7 +13,7 @@ export const KEEP_REPORTS = 10;
 
 export function buildReportPayload({ evidence, job, provider, model, locale, generatedAt }) {
   return {
-    evidence,
+    evidence: withoutEvidenceQuotes(evidence),
     // Only the job's identity travels — never the CV text or the captured page body.
     job: {
       title: job?.title || "",
@@ -26,6 +26,58 @@ export function buildReportPayload({ evidence, job, provider, model, locale, gen
     locale,
     generatedAt
   };
+}
+
+/**
+ * Drops the resolved source text from every evidence reference before storage.
+ *
+ * Parsing resolves each CV-nnn / JD-nnn ref to the literal block it names, so the
+ * evidence arrays carry verbatim CV lines — name, email, phone, salary history.
+ * Neither the panel nor the report renders them, so persisting them across a
+ * browser session bought nothing and left the CV sitting in extension storage.
+ * The ref itself stays: it is what makes a claim traceable, and it is not content.
+ */
+function withoutEvidenceQuotes(value) {
+  if (Array.isArray(value)) return value.map(withoutEvidenceQuotes);
+  if (!value || typeof value !== "object") return value;
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter(([key]) => key !== "quote")
+      .map(([key, item]) => [key, withoutEvidenceQuotes(item)])
+  );
+}
+
+/**
+ * Reads one report out of whichever storage area holds it.
+ *
+ * The most-recent fallback applies ONLY when the link carries no id. A link naming
+ * a report that has since been pruned used to fall through to it and render a
+ * different company's analysis under the URL the reader had bookmarked, with
+ * nothing on the page saying so. Returning null gets them "this report has
+ * expired", which is both true and recoverable.
+ *
+ * Both areas are checked because the panel writes to local wherever session is
+ * unavailable. Pure and separate so this rule can be tested without a DOM.
+ */
+export async function readReport(stores, id) {
+  for (const store of stores.filter(Boolean)) {
+    if (id) {
+      const direct = await store.get(reportKey(id));
+      if (direct?.[reportKey(id)]) return direct[reportKey(id)];
+      continue;
+    }
+    const latest = await store.get(LATEST_KEY);
+    const latestId = latest?.[LATEST_KEY];
+    if (!latestId) continue;
+    const fallback = await store.get(reportKey(latestId));
+    if (fallback?.[reportKey(latestId)]) return fallback[reportKey(latestId)];
+  }
+  return null;
+}
+
+/** Every stored report key, so clearing a session can actually remove them. */
+export function storedReportKeys(stored = {}) {
+  return Object.keys(stored).filter((key) => key.startsWith(REPORT_PREFIX));
 }
 
 /**

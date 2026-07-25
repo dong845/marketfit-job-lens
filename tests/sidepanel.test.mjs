@@ -124,3 +124,46 @@ test("analysis rendering lives in its own module, not inline in the panel", () =
   assert.match(script, /function renderAnalysis\(evidence\) \{ fields\.result\.innerHTML = renderAnalysisHtml\(evidence, locale\); \}/);
   assert.equal(script.includes("function renderRequirements"), false);
 });
+
+test("pasted job text survives the analyze click that used to destroy it", () => {
+  // The loop: capture fails, the panel offers "Edit job text", the user pastes the
+  // JD — which has no URL because capture failed — and clicking Analyze sent it back
+  // through the same capture, which cleared it. An unbreakable loop on exactly the
+  // pages the manual fallback exists for.
+  const resolve = script.slice(script.indexOf("async function resolveJobForAnalysis"), script.indexOf("function getProfile"));
+  assert.match(resolve, /if \(!currentJob\) return captureCurrentJob\(\)/);
+  assert.match(resolve, /manual_paste.*return currentJob/s);
+  assert.ok(resolve.indexOf("manual_paste") < resolve.indexOf("if (!currentJob.url)"), "pasted text must be honoured before any URL check");
+});
+
+test("a finished analysis is brought into view instead of left below a screen of form", () => {
+  // The result is the last element on the page, under roughly a full viewport of
+  // provider, key, model and help text — so finishing left the reader looking at
+  // their own API-key field.
+  assert.match(script, /function revealResult/);
+  assert.match(script, /panel\.open = false/);
+  assert.match(script, /fields\.result\.scrollIntoView/);
+  const run = script.slice(script.indexOf("async function runAgentReview"), script.indexOf("function renderAnalysis"));
+  assert.match(run, /void recordDuration/, "timing bookkeeping must not be awaited");
+  assert.ok(run.indexOf("renderAnalysis(lastAgentEvidence)") < run.indexOf("void recordDuration"), "the result must be shown before the timing bookkeeping");
+});
+
+test("a run in progress owns the result area", () => {
+  // lastAgentEvidence is deliberately null while a run is in flight, so re-rendering
+  // from either of these replaced the live progress message with an empty state —
+  // or, on clear, put the cleared analysis back on screen with its report button.
+  const locale = script.slice(script.indexOf("function applyLocale"), script.indexOf("async function loadResumePdf"));
+  assert.match(locale, /if \(agentRunActive\) return/);
+  const clear = script.slice(script.indexOf("async function clearSession"), script.indexOf("async function clearStoredReports"));
+  assert.match(clear, /if \(agentRunActive\)/);
+});
+
+test("the version badge survives translation", () => {
+  // applyTranslations assigns textContent, which deletes child elements: with
+  // data-i18n on the h1, the version span inside it was destroyed at boot — and the
+  // badge exists precisely to tell "not fixed" from "not reloaded".
+  const heading = html.slice(html.indexOf("<h1"), html.indexOf("</h1>"));
+  assert.match(heading, /<span data-i18n="appTitle">/);
+  assert.match(heading, /id="appVersion"/);
+  assert.equal(/<h1[^>]*data-i18n/.test(heading), false, "data-i18n on the h1 wipes everything nested in it");
+});

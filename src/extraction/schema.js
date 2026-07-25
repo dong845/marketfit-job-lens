@@ -10,13 +10,24 @@
  * @property {{method:string, confidence:number, needsConfirmation:boolean, textLength?:number, contentFingerprint?:string, qualityReasons?:string[]}} extraction
  */
 
+/**
+ * Identity fields are capped here to what the request parser accepts.
+ *
+ * Capture picks them with container-ish selectors ([class*='title'] and friends),
+ * so a hero block or an every-office location list can arrive hundreds of
+ * characters long. Uncapped, the run failed at request validation with a message
+ * naming an internal field, and re-opening the editor pre-filled the same
+ * over-long value — so the user could only hit it again.
+ */
+const MAX_IDENTITY_LENGTH = 240;
+
 export function createNormalizedJob(input = {}) {
   return {
-    title: cleanText(input.title),
-    company: cleanText(input.company),
-    location: cleanText(input.location),
-    employmentType: cleanText(input.employmentType),
-    salary: cleanText(input.salary),
+    title: identityText(input.title),
+    company: identityText(input.company),
+    location: identityText(input.location),
+    employmentType: cleanText(input.employmentType).slice(0, 120),
+    salary: identityText(input.salary),
     url: cleanText(input.url),
     capturedAt: input.capturedAt || new Date().toISOString(),
     sourceText: cleanSourceText(input.sourceText),
@@ -34,6 +45,10 @@ export function createNormalizedJob(input = {}) {
 
 export function cleanText(value) {
   return String(value ?? "").replace(/\s+/g, " ").trim();
+}
+
+function identityText(value) {
+  return cleanText(value).slice(0, MAX_IDENTITY_LENGTH).trim();
 }
 
 /** Unlike cleanText, this keeps line breaks: they carry the section structure the model reads. */

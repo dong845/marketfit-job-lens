@@ -87,8 +87,16 @@ for (const f of consumers) {
   for (const m of src.matchAll(/format\(\w+,\s*"([^"]+)"/g)) usedKeys.add(m[1]);
   for (const m of src.matchAll(/labelKey/g)) usedKeys.add("__dynamic__");
 }
-// keys reached through lookup tables
-for (const m of readFileSync(join(root, "src/ui/analysisView.js"), "utf8").matchAll(/"(match|level|priority|severity|verdict)[A-Za-z_]*"/g)) usedKeys.add(m[0].slice(1, -1));
+// The renderer reaches most keys indirectly — a lookup table keyed by an enum, a
+// ternary assigned to a variable, or a suffix appended to a computed key. Matching
+// only literal t("…") arguments there reported live keys as orphans, which teaches
+// people to ignore this warning; that is worse than not having it.
+const view = readFileSync(join(root, "src/ui/analysisView.js"), "utf8");
+for (const m of view.matchAll(/"([A-Za-z][A-Za-z0-9]*)"/g)) if (en.has(m[1])) usedKeys.add(m[1]);
+// `${keyFn(x)}Sub` reaches every key ending in that suffix.
+for (const m of view.matchAll(/\$\{[^}]+\}([A-Za-z][A-Za-z0-9]*)`/g)) {
+  for (const key of en) if (key.endsWith(m[1])) usedKeys.add(key);
+}
 for (const m of readFileSync(join(root, "src/ai/models.js"), "utf8").matchAll(/labelKey: "([^"]+)"/g)) usedKeys.add(m[1]);
 const orphans = [...en].filter((k) => k !== "en" && !usedKeys.has(k));
 if (orphans.length) warn.push(`i18n keys with no visible consumer: ${orphans.join(", ")}`);

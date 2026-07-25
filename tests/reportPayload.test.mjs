@@ -3,7 +3,7 @@ import test from "node:test";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
-import { KEEP_REPORTS, LATEST_KEY, REPORT_PREFIX, buildReportPayload, expiredReportKeys, reportKey, reportUrl } from "../src/report/payload.js";
+import { KEEP_REPORTS, LATEST_KEY, REPORT_PREFIX, buildReportPayload, expiredReportKeys, readReport, reportKey, reportUrl } from "../src/report/payload.js";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 
@@ -86,4 +86,27 @@ test("pruning follows recorded time, not the order storage happens to return", (
 
 test("nothing is pruned while under the retention count", () => {
   assert.deepEqual(expiredReportKeys({ [reportKey("a")]: { generatedAt: "" }, [reportKey("b")]: {}, [LATEST_KEY]: "a" }), []);
+});
+
+/** A storage area that answers only for the keys it holds, like chrome.storage does. */
+function storeOf(contents) {
+  return { async get(key) { return key in contents ? { [key]: contents[key] } : {}; } };
+}
+
+test("a report link that names a pruned report expires rather than showing another job", async () => {
+  // The fallback to "most recent" used to run even when an id was supplied, so a
+  // bookmarked report tab quietly rendered a different company's analysis under the
+  // URL the reader had saved, with nothing on the page admitting the substitution.
+  const session = storeOf({ [reportKey("kept")]: { job: { company: "Zeta" } }, [LATEST_KEY]: "kept" });
+  assert.equal(await readReport([session], "pruned"), null);
+  assert.deepEqual(await readReport([session], "kept"), { job: { company: "Zeta" } });
+});
+
+test("a link with no id still falls back to the most recent report, across both stores", async () => {
+  const empty = storeOf({});
+  const local = storeOf({ [reportKey("r9")]: { job: { company: "Acme" } }, [LATEST_KEY]: "r9" });
+  assert.deepEqual(await readReport([empty, local], ""), { job: { company: "Acme" } });
+  assert.deepEqual(await readReport([empty, local], null), { job: { company: "Acme" } });
+  // A latest pointer aiming at something already gone is not a report either.
+  assert.equal(await readReport([storeOf({ [LATEST_KEY]: "gone" })], null), null);
 });

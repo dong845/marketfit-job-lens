@@ -7,6 +7,13 @@ export function extractOpenAiJsonPayload(payload) {
     const reason = payload.incomplete_details?.reason ? ` (${payload.incomplete_details.reason})` : "";
     throw new BridgeError("OUTPUT_TRUNCATED", `${TRUNCATED_MESSAGE}${reason}`, 502);
   }
+  // Chat-completions providers signal truncation per choice instead. DeepSeek comes
+  // through here, has the smallest output budget of any model offered, and without
+  // this reported a cut-off answer as "did not return valid JSON" — the one model
+  // most likely to truncate was the only one that could not say so.
+  if ((payload?.choices || []).some((choice) => choice?.finish_reason === "length")) {
+    throw new BridgeError("OUTPUT_TRUNCATED", TRUNCATED_MESSAGE, 502);
+  }
   const refusal = collectTextByTypes(payload, new Set(["refusal"]));
   if (refusal) throw new BridgeError("PROVIDER_REFUSED", refusal.slice(0, 500), 502);
   const text = [

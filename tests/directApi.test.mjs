@@ -265,3 +265,46 @@ test("a transport failure keeps the underlying cause", () => {
   assert.match(source, /error\?\.cause\?\.code \|\| error\?\.cause\?\.message \|\| error\?\.message/);
   assert.match(source, /could not be reached \(\$\{String\(cause\)/);
 });
+
+test("an HTTP error keeps its status when the body is not JSON", async () => {
+  // Rate limits and outages usually arrive as an edge or proxy HTML page. Parsing
+  // the body before checking the status erased the one fact that told the user
+  // whether to wait, slow down, or fix their key.
+  const failWith = async (status) => {
+    const client = createDirectApiClient({
+      permissionsApi: { async contains() { return true; }, async request() { return true; } },
+      fetchImpl: async () => ({ ok: false, status, async json() { throw new SyntaxError("Unexpected token <"); } })
+    });
+    return client.runTask(apiRequest()).then(() => "", (error) => error.message);
+  };
+  assert.match(await failWith(429), /429/);
+  assert.match(await failWith(429), /rate limit/i);
+  assert.match(await failWith(503), /503/);
+  assert.match(await failWith(401), /key/i);
+});
+
+test("a chat-completions reply cut off by the token budget says so", async () => {
+  // DeepSeek has the smallest output budget of any model offered and reports
+  // truncation per choice, so it was the model most likely to truncate and the only
+  // one that reported it as "did not return valid JSON".
+  const client = createDirectApiClient({
+    permissionsApi: { async contains() { return true; }, async request() { return true; } },
+    fetchImpl: async () => ({ ok: true, status: 200, async json() {
+      return { choices: [{ finish_reason: "length", message: { content: '{"overview":' } }] };
+    } })
+  });
+  await assert.rejects(() => client.runTask(apiRequest("deepseek-api", "deepseek-chat")), /ran out of output space/);
+});
+
+test("a body that never arrives is still bounded by the request timeout", async () => {
+  // fetch() resolves on headers, so cancelling the abort there left a stalled body
+  // with nothing to interrupt it: the panel's elapsed counter climbed past the
+  // timeout forever and the run button never came back.
+  const source = readFileSync(new URL("../src/ai/directApiClient.js", import.meta.url), "utf8");
+  const send = source.slice(source.indexOf("async function sendJson"), source.indexOf("function statusMessage"));
+  assert.match(send, /const timer = setTimeout/);
+  assert.match(send, /await response\.json\(\)/);
+  // One finally, after the body has been read — not one per phase.
+  assert.equal((send.match(/clearTimeout\(timer\)/g) || []).length, 1);
+  assert.ok(send.indexOf("await response.json()") < send.indexOf("clearTimeout(timer)"), "the body must be read while the deadline still applies");
+});

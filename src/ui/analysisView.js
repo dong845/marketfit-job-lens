@@ -1,4 +1,4 @@
-import { t } from "./i18n.js";
+import { format, t } from "./i18n.js";
 
 /**
  * Turns validated agent evidence into the analysis markup.
@@ -12,17 +12,19 @@ import { t } from "./i18n.js";
  * Pure: evidence in, HTML string out, no DOM access — so the layout can be tested
  * directly rather than only through a live panel.
  *
- * Ordered for the decision this panel exists to support: what the role is, how the
- * CV lines up requirement by requirement, then what to actually do about it.
- * Evidence sits in disclosures rather than inline, so quotes are one click away
- * instead of burying every conclusion they support.
+ * Ordered for the decision this panel exists to support: the answer and what it
+ * costs, then the conditions that can make the answer moot, then what the role is,
+ * how the CV lines up requirement by requirement, and what to actually do about it.
+ *
+ * The disclaimer is last. Between the verdict and the substance it occupied the
+ * spot the eye lands on after reading the answer, spending the reader's best
+ * attention on small print.
  */
 export function renderAnalysisHtml(evidence, locale) {
   if (!evidence) return "";
   return [
-    renderRecommendation(evidence.recommendation, locale),
+    renderRecommendation(evidence.recommendation, evidence.requirements, locale),
     renderStatedConditions(evidence.statedConditions, locale),
-    `<p class="analysis-note">${escapeHtml(t(locale, "aiSupplement"))}</p>`,
     renderOverview(evidence.overview, locale),
     renderRequirements(evidence.requirements, locale),
     renderCards(t(locale, "aiStrengths"), evidence.strengths, (item) => titleAndSummary(item.title, item.summary), locale),
@@ -35,7 +37,8 @@ export function renderAnalysisHtml(evidence, locale) {
     renderGroup(t(locale, "sectionVerify"), [
       renderCards(t(locale, "aiRisks"), evidence.risks, (item) => titleAndSummary(item.title, item.summary, severityTag(item.severity, locale)), locale, "sub"),
       renderCards(t(locale, "employerQuestions"), evidence.uncertainties, (item) => titleAndSummary(item.type, item.message), locale, "sub")
-    ])
+    ]),
+    `<p class="analysis-note">${escapeHtml(t(locale, "aiSupplement"))}</p>`
   ].filter(Boolean).join("");
 }
 
@@ -52,21 +55,59 @@ export function escapeHtml(value) {
 // taxonomy at the fastest-read point on the panel.
 const VERDICT_TONE = { strong_fit: "ok", worth_applying: "go", stretch: "warn", weak_fit: "bad" };
 
-/** The answer to "should I spend an evening on this?", stated before the detail. */
-function renderRecommendation(recommendation, locale) {
+/**
+ * The answer to "should I spend an evening on this?", stated before the detail.
+ *
+ * The verdict word alone states a conclusion the reader cannot check, so the card
+ * also carries what it cost to reach: how many required areas the CV evidences,
+ * what applying would take, and the one thing that would change the answer.
+ */
+function renderRecommendation(recommendation, requirements, locale) {
   // Saying nothing here means the user paid for an analysis and the one thing they
   // came for is silently absent.
   if (!recommendation) {
     return `<section class="result-card verdict tone-muted"><p class="verdict-rationale">${escapeHtml(t(locale, "verdictMissing"))}</p></section>`;
   }
   const tone = VERDICT_TONE[recommendation.verdict] || "muted";
+  const effort = recommendation.effort
+    ? `<span class="tag tag-muted">${escapeHtml(t(locale, effortKey(recommendation.effort)))}</span>`
+    : "";
+  const decisive = recommendation.decisiveFactor
+    ? `<p class="verdict-decisive"><strong>${escapeHtml(t(locale, "decisiveFactor"))}</strong> ${escapeHtml(recommendation.decisiveFactor)}</p>`
+    : "";
   return `<section class="result-card verdict tone-${escapeHtml(tone)}">
     <div class="verdict-head">
-      <span class="tag tag-${escapeHtml(tone)}">${escapeHtml(t(locale, verdictKey(recommendation.verdict)))}</span>
+      <span class="verdict-word">${escapeHtml(t(locale, verdictKey(recommendation.verdict)))}</span>
+      ${effort}
     </div>
+    ${VERDICT_TONE[recommendation.verdict] ? `<p class="verdict-sub">${escapeHtml(t(locale, `${verdictKey(recommendation.verdict)}Sub`))}</p>` : ""}
+    ${requirementScore(requirements, locale)}
     <p class="verdict-headline">${escapeHtml(recommendation.headline)}</p>
+    ${recommendation.effortNote ? `<p class="verdict-effort">${escapeHtml(recommendation.effortNote)}</p>` : ""}
     <p class="verdict-rationale">${escapeHtml(recommendation.rationale)}</p>
+    ${decisive}
   </section>`;
+}
+
+/**
+ * The count behind the verdict. Without it the reader has to tally the requirement
+ * list by hand to find out whether "worth applying" meant five matches or one, and
+ * a conclusion they cannot check is a conclusion they cannot act on.
+ */
+function requirementScore(requirements, locale) {
+  const required = (requirements || []).filter((item) => item.level === "required");
+  if (!required.length) return "";
+  const count = (states) => required.filter((item) => states.includes(item.match)).length;
+  return `<p class="verdict-score">${escapeHtml(format(locale, "verdictScore", {
+    total: required.length,
+    met: count(["strong"]),
+    partial: count(["partial"]),
+    missing: count(["gap", "no_evidence"])
+  }))}</p>`;
+}
+
+function effortKey(effort) {
+  return { quick: "effortQuick", evening: "effortEvening", multi_day: "effortMultiDay", not_closable: "effortNotClosable" }[effort] || "unknown";
 }
 
 /**
@@ -98,9 +139,17 @@ function verdictKey(verdict) {
   return { strong_fit: "verdictStrongFit", worth_applying: "verdictWorthApplying", stretch: "verdictStretch", weak_fit: "verdictWeakFit" }[verdict] || "unknown";
 }
 
+const LEVEL_DIRECTION_KEY = { step_up: "levelStepUp", lateral: "levelLateral", step_down: "levelStepDown", unclear: "levelUnclearScope" };
+
 function renderOverview(overview, locale) {
   if (!overview) return "";
+  // Whether the job is a step up, sideways or down is a different question from
+  // whether the CV qualifies, and it is the one the requirement list cannot answer.
+  const comparison = overview.levelComparison && LEVEL_DIRECTION_KEY[overview.levelComparison.direction]
+    ? `<p class="level-compare"><span class="tag tag-muted">${escapeHtml(t(locale, LEVEL_DIRECTION_KEY[overview.levelComparison.direction]))}</span> ${escapeHtml(overview.levelComparison.note)}</p>`
+    : "";
   return `<section class="result-card overview">
+    ${comparison}
     ${textBlock(t(locale, "jobUnderstanding"), overview.jobFocus)}
     ${textBlock(t(locale, "candidatePositioning"), overview.candidatePositioning)}
     ${textBlock(t(locale, "fitNarrative"), overview.fitNarrative)}
@@ -125,13 +174,15 @@ function renderRequirements(requirements, locale) {
     (MATCH_ORDER[a.match] ?? 9) - (MATCH_ORDER[b.match] ?? 9));
 
   const rows = sorted.map((item) => {
-    const tone = MATCH_TONE[item.match] || "muted";
+    const tone = matchTone(item);
+    const meta = requirementMeta(item, locale);
     return `<li class="requirement tone-${escapeHtml(tone)}">
       <div class="requirement-head">
         <span class="requirement-name">${escapeHtml(item.name)}</span>
+        <span class="tag tag-level">${escapeHtml(t(locale, levelKey(item.level)))}</span>
         <span class="tag tag-${escapeHtml(tone)}">${escapeHtml(t(locale, matchKey(item.match)))}</span>
       </div>
-      <p class="meta">${escapeHtml(requirementMeta(item, locale))} · ${escapeHtml(item.explanation)}</p>
+      <p class="meta">${meta ? `${escapeHtml(meta)} · ` : ""}${escapeHtml(item.explanation)}</p>
     </li>`;
   }).join("");
 
@@ -141,23 +192,55 @@ function renderRequirements(requirements, locale) {
 const PRIORITY_ORDER = { now: 0, before_apply: 1, later: 2 };
 const PRIORITY_TONE = { now: "bad", before_apply: "warn", later: "muted" };
 
+/**
+ * The plan, grouped by when to do it and numbered within each group.
+ *
+ * One pill per action put a repeated label on its own row above every line, so a
+ * list that was already in the right order did not read as an order at all.
+ */
 function renderActions(actions, locale) {
   if (!actions?.length) return "";
   const sorted = [...actions].sort((a, b) => (PRIORITY_ORDER[a.priority] ?? 9) - (PRIORITY_ORDER[b.priority] ?? 9));
-  const rows = sorted.map((item) => `<li class="action">
-    <span class="tag tag-${escapeHtml(PRIORITY_TONE[item.priority] || "muted")}">${escapeHtml(t(locale, priorityKey(item.priority)))}</span>
-    <p>${escapeHtml(item.action)}</p>
-  </li>`).join("");
-  return `<section class="result-card"><h3>${escapeHtml(t(locale, "suggestedActions"))}</h3><ul class="action-list">${rows}</ul></section>`;
+  const groups = [];
+  for (const item of sorted) {
+    const priority = PRIORITY_ORDER[item.priority] === undefined ? "later" : item.priority;
+    const last = groups[groups.length - 1];
+    if (last && last.priority === priority) last.items.push(item);
+    else groups.push({ priority, items: [item] });
+  }
+  const blocks = groups.map((group) => {
+    const steps = group.items.map((item, index) => `<li class="action">
+      <span class="action-index">${index + 1}</span>
+      <p>${escapeHtml(item.action)}</p>
+    </li>`).join("");
+    return `<h4 class="action-group tone-${escapeHtml(PRIORITY_TONE[group.priority] || "muted")}">${escapeHtml(t(locale, priorityKey(group.priority)))}</h4>
+      <ol class="action-list">${steps}</ol>`;
+  }).join("");
+  return `<section class="result-card actions"><h3>${escapeHtml(t(locale, "suggestedActions"))}</h3>
+    <p class="meta">${escapeHtml(t(locale, "actionStepsHint"))}</p>${blocks}</section>`;
 }
 
-/** Level, whether it is a hard filter, and whether the CV's evidence is current. */
+/**
+ * Whether it is a hard filter and whether the CV's evidence is current. The level
+ * itself is a tag beside the name rather than grey prose here: required versus
+ * preferred is the structural fact in this list, and it was set in the same 12px
+ * muted type as the explanation that follows it.
+ */
 function requirementMeta(item, locale) {
-  const parts = [t(locale, levelKey(item.level))];
+  const parts = [];
   if (item.screening === "knockout") parts.push(t(locale, "screeningKnockout"));
   if (item.recency === "dated") parts.push(t(locale, "recencyDated"));
   if (item.recency === "undated") parts.push(t(locale, "recencyUndated"));
   return parts.join(" · ");
+}
+
+/**
+ * A required item the CV never mentions ranks above a partial match in the sort,
+ * so drawing it grey made the higher-priority row the quieter one.
+ */
+function matchTone(item) {
+  if (item.match === "no_evidence" && item.level === "required") return "warn";
+  return MATCH_TONE[item.match] || "muted";
 }
 
 function renderCards(title, items, renderItem, locale, variant = "") {

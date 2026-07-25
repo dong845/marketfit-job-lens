@@ -4,6 +4,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 import { buildRemoteTransmissionPreview } from "../src/privacy/redaction.js";
+import { LATEST_KEY, buildReportPayload, reportKey, storedReportKeys } from "../src/report/payload.js";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 
@@ -42,12 +43,40 @@ test("the only persisted keys are the interface language and timing estimates", 
   assert.match(sidepanel, /chrome\.storage\?\.session \|\| chrome\.storage\?\.local/);
 });
 
-test("clearing the session removes the API key and every personal storage key", () => {
+test("clearing the session removes the API key and every stored report", () => {
   const sidepanel = readFileSync(join(root, "src/sidepanel/sidepanel.js"), "utf8");
-  const clear = sidepanel.slice(sidepanel.indexOf("async function clearSession"), sidepanel.indexOf("function renderCurrentJobSummary"));
+  const clear = sidepanel.slice(sidepanel.indexOf("async function clearSession"), sidepanel.indexOf("async function clearStoredReports"));
   assert.match(clear, /fields\.apiKey\.value = ""/);
   assert.match(clear, /resume = null/);
-  assert.match(clear, /chrome\.storage\.local\.remove\(PERSONAL_STORAGE_KEYS\)/);
+  // It used to remove three key names nothing ever wrote, so clearing cleared
+  // nothing while reporting success. Reports are what an analysis leaves behind.
+  assert.match(clear, /await clearStoredReports\(\)/);
+  const removal = sidepanel.slice(sidepanel.indexOf("async function clearStoredReports"), sidepanel.indexOf("function renderCurrentJobSummary"));
+  assert.match(removal, /chrome\.storage\.session/);
+  assert.match(removal, /chrome\.storage\.local/);
+  assert.match(removal, /storedReportKeys/);
+});
+
+test("stored report keys are found in both storage areas, and nothing else is touched", () => {
+  assert.deepEqual(
+    storedReportKeys({ [reportKey("a")]: {}, [LATEST_KEY]: "a", "marketfit.locale.v1": "en", "marketfit.timing.v1": {} }).sort(),
+    [LATEST_KEY, reportKey("a")].sort()
+  );
+  assert.deepEqual(storedReportKeys({}), []);
+});
+
+test("a stored report carries no CV text, because nothing renders the quotes", () => {
+  const evidence = {
+    overview: { jobFocus: "Reconstruction.", evidence: [{ source: "resume", ref: "CV-001", quote: "A. User · user@example.com · +31 6 1234 5678" }] },
+    requirements: [{ name: "PyTorch", match: "strong", evidence: [{ source: "resume", ref: "CV-002", quote: "Built PyTorch reconstruction at Example Health, 2019-2024" }] }]
+  };
+  const payload = buildReportPayload({ evidence, job: { title: "Engineer", url: "https://example.com/j/1" }, provider: "openai-api", model: "gpt-5-mini", locale: "en", generatedAt: "2026-07-25T00:00:00.000Z" });
+  const serialized = JSON.stringify(payload);
+  assert.equal(serialized.includes("user@example.com"), false);
+  assert.equal(serialized.includes("Example Health"), false);
+  // The ref survives: it is what keeps a claim traceable, and it is not content.
+  assert.equal(payload.evidence.requirements[0].evidence[0].ref, "CV-002");
+  assert.equal(payload.evidence.requirements[0].name, "PyTorch");
 });
 
 test("optional AI payload preview redacts common PII", () => {

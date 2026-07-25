@@ -6,10 +6,9 @@ import { API_PROVIDERS, MODELS, modelsForProvider } from "../ai/models.js";
 import { configurePdfWorker, extractResumePdf } from "../profile/pdfResume.js";
 import { applyTranslations, format, t } from "../ui/i18n.js";
 import { escapeHtml, renderAnalysisHtml } from "../ui/analysisView.js";
-import { LATEST_KEY, buildReportPayload, expiredReportKeys, reportKey, reportUrl } from "../report/payload.js";
+import { LATEST_KEY, buildReportPayload, expiredReportKeys, reportKey, reportUrl, storedReportKeys } from "../report/payload.js";
 
 const LOCALE_KEY = "marketfit.locale.v1";
-const PERSONAL_STORAGE_KEYS = ["marketfit.state.v2", "marketfit.profile.v1", "marketfit.lastAnalysis.v1"];
 const TIMING_KEY = "marketfit.timing.v1";
 
 let locale = "en";
@@ -79,6 +78,10 @@ function applyLocale() {
   fields.temporaryNotice.textContent = t(locale, "temporary");
   renderResumeStatus();
   renderCurrentJobSummary();
+  // A run in progress owns the result area: lastAgentEvidence is deliberately null
+  // while one is running, so re-rendering here replaced the live progress message
+  // with "upload a CV" — the panel looked like it had thrown the run away.
+  if (agentRunActive) return;
   if (lastAgentEvidence) renderAnalysis(lastAgentEvidence);
   else renderEmpty();
 }
@@ -156,7 +159,13 @@ async function captureCurrentJob({ announceFailure = true } = {}) {
 }
 
 async function resolveJobForAnalysis() {
-  if (!currentJob?.url) return captureCurrentJob();
+  if (!currentJob) return captureCurrentJob();
+  // Text the user pasted themselves outranks anything re-capture could produce, and
+  // it usually has no URL because capture had already failed. Gating on the URL sent
+  // that text straight back through the capture that failed, which discarded it —
+  // an unbreakable loop on exactly the pages the manual fallback exists for.
+  if (currentJob.extraction?.method === "manual_paste") return currentJob;
+  if (!currentJob.url) return captureCurrentJob();
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (isSameJobPage(currentJob.url, tab?.url || "") && hasUsableJobContent(currentJob)) return currentJob;
@@ -175,20 +184,43 @@ function getProfile() {
 }
 
 async function clearSession() {
+  // Clearing under a running analysis wiped the state the run then rendered back
+  // onto the screen a moment later, report button and all.
+  if (agentRunActive) return setStatus(t(locale, "requestingAi"));
   if (!window.confirm(t(locale, "clearSession"))) return;
   resume = null;
   currentJob = null;
   lastAgentEvidence = null;
+  lastRunContext = null;
   fields.cvPdf.value = "";
   fields.apiKey.value = "";
   fields.redactionPreview.hidden = true;
   fields.redactionPreview.textContent = "";
   fields.reportRow.hidden = true;
-  await chrome.storage.local.remove(PERSONAL_STORAGE_KEYS);
+  await clearStoredReports();
   renderResumeStatus();
   renderCurrentJobSummary();
   renderEmpty();
   setStatus(t(locale, "clearSession"));
+}
+
+/**
+ * Removes every stored report.
+ *
+ * This used to remove three key names that nothing in the extension ever writes,
+ * so "Clear local session" cleared nothing at all while reporting success. The
+ * reports are the only thing an analysis actually leaves behind.
+ */
+async function clearStoredReports() {
+  for (const area of [chrome.storage.session, chrome.storage.local]) {
+    try {
+      const stored = await area.get(null);
+      const keys = storedReportKeys(stored || {});
+      if (keys.length) await area.remove(keys);
+    } catch {
+      // Storage areas differ by Chrome profile; one refusing must not abort the rest.
+    }
+  }
 }
 
 function renderCurrentJobSummary() {
@@ -426,10 +458,15 @@ async function runAgentReview() {
     } finally {
       stopTimer();
     }
-    await recordDuration(model, Math.round((Date.now() - startedAt) / 1000), inputChars);
+    // Show the result first. recordDuration only remembers how long this took, and
+    // awaiting it put extension storage between a paid analysis and the reader: a
+    // storage call that hangs rather than throws left the run stuck on "Requesting
+    // AI analysis" with the answer already in hand.
     renderAnalysis(lastAgentEvidence);
     fields.reportRow.hidden = false;
     setStatus(format(locale, "aiFinished", { provider }));
+    revealResult();
+    void recordDuration(model, Math.round((Date.now() - startedAt) / 1000), inputChars);
   } catch (error) {
     const message = error.message || t(locale, "analysisFailed");
     setStatus(message);
@@ -441,6 +478,21 @@ async function runAgentReview() {
 }
 
 function renderAnalysis(evidence) { fields.result.innerHTML = renderAnalysisHtml(evidence, locale); }
+
+/**
+ * Brings the verdict into view.
+ *
+ * The result is the last element on the page, under roughly a full screen of form
+ * chrome — provider, key, model, help text. Without this, finishing an analysis
+ * left the reader looking at their own API-key field, hunting for the answer they
+ * had just paid for. Collapsing the setup panel is part of the same move: it is
+ * the thing standing between the button and the result.
+ */
+function revealResult() {
+  const panel = byId("agentPanel");
+  if (panel) panel.open = false;
+  fields.result.scrollIntoView?.({ block: "start", behavior: "smooth" });
+}
 
 /**
  * Reasoning models routinely take a minute or more on this prompt. Without a

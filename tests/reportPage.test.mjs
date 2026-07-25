@@ -35,10 +35,9 @@ test("a missing or expired report explains itself instead of rendering blank", (
   // These are shown before any payload exists, so the language has to come from
   // the saved preference rather than from the report itself.
   assert.match(script, /async function savedLocale/);
-  // A link without a usable id falls back to the most recent report rather than
-  // dead-ending, since the id only travels in a query string.
-  assert.match(script, /async function loadPayload/);
-  assert.match(script, /LATEST_KEY/);
+  // The lookup rule itself is exercised in reportPayload.test.mjs, where it can be
+  // run rather than pattern-matched; the page only wires the two storage areas to it.
+  assert.match(script, /readReport\(\[chrome\.storage\?\.session, chrome\.storage\?\.local\], id\)/);
 });
 
 test("neither surface prints source quotes", () => {

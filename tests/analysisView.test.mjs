@@ -110,8 +110,11 @@ test("the verdict leads, so the apply decision is answerable without scrolling",
   }), "en");
   assert.ok(html.indexOf("verdict") < html.indexOf("Requirements"), "the verdict must come before the detail");
   assert.match(html, /class="result-card verdict tone-warn"/);
-  assert.match(html, /A stretch/);
+  assert.match(html, /Fix gaps first/);
   assert.match(html, /Worth applying once the C\+\+ bullet is specific\./);
+  // The disclaimer used to sit between the verdict and the substance, spending the
+  // reader's best attention on small print.
+  assert.ok(html.indexOf("analysis-note") > html.indexOf("Requirements"), "the disclaimer belongs after the analysis");
 });
 
 test("each verdict maps to its own tone", () => {

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { AGENT_EVIDENCE_SCHEMA, BridgeError, RESULT_LIMITS, parseAgentEvidence, parseTaskRequest } from "../src/ai/schema.js";
+import { AGENT_EVIDENCE_SCHEMA, BridgeError, FIELD_LIMITS, RESULT_LIMITS, extractJsonText, parseAgentEvidence, parseTaskRequest } from "../src/ai/schema.js";
 
 /**
  * The evidence and result-shape layer, independent of any provider.
@@ -137,6 +137,67 @@ test("a verbose reply is trimmed to the caps, not rejected", () => {
   assert.equal(parsed.suggestedActions.length, RESULT_LIMITS.suggestedActions);
   // Trimming keeps the leading items, which is the order the model prioritised.
   assert.equal(parsed.requirements[0].name, "R0");
+});
+
+test("an over-long string is trimmed to the cap, not thrown away with the analysis", () => {
+  // Same regression as the list caps, one layer down: maxLength is stripped from the
+  // wire schema too, so the provider is never told these ceilings. Rejecting a reply
+  // for exceeding one lost the whole paid analysis over a single verbose sentence.
+  const evidence = validEvidence();
+  evidence.requirements[0].explanation = "x".repeat(FIELD_LIMITS.prose + 500);
+  evidence.overview.fitNarrative = "y".repeat(FIELD_LIMITS.narrative + 500);
+  const parsed = parseAgentEvidence(evidence, apiRequest());
+  assert.equal(parsed.requirements[0].explanation.length, FIELD_LIMITS.prose);
+  assert.equal(parsed.overview.fitNarrative.length, FIELD_LIMITS.narrative);
+  // An empty or missing string is still a real error, not something to invent.
+  evidence.requirements[0].explanation = "";
+  assert.throws(() => parseAgentEvidence(evidence, apiRequest()), BridgeError);
+});
+
+test("an empty evidence array is accepted, exactly like one full of unresolvable refs", () => {
+  // These were opposite: [] was rejected outright while an invented ref resolved to
+  // [] and passed. That punished the honest shape and rewarded the fabricated one.
+  const withEmpty = validEvidence();
+  withEmpty.requirements[0].evidence = [];
+  withEmpty.overview.evidence = [];
+  const parsed = parseAgentEvidence(withEmpty, apiRequest());
+  assert.deepEqual(parsed.requirements[0].evidence, []);
+  assert.deepEqual(parsed.overview.evidence, []);
+  assert.equal(parsed.requirements[0].name, "Python");
+
+  const withFabricated = validEvidence();
+  withFabricated.requirements[0].evidence = [{ ref: "CV-999" }];
+  assert.deepEqual(parseAgentEvidence(withFabricated, apiRequest()).requirements[0].evidence, []);
+});
+
+test("the effort, decisive factor and level comparison survive, and never take the verdict down with them", () => {
+  const request = apiRequest();
+  const evidence = validEvidence();
+  evidence.recommendation = { verdict: "stretch", headline: "h", rationale: "r", effort: "evening", effortNote: "Rewrite the C++ bullet.", decisiveFactor: "Ship a public C++ example." };
+  evidence.overview.levelComparison = { direction: "step_up", note: "Owns a pipeline rather than a component." };
+  const parsed = parseAgentEvidence(evidence, request);
+  assert.equal(parsed.recommendation.effort, "evening");
+  assert.equal(parsed.recommendation.decisiveFactor, "Ship a public C++ example.");
+  assert.equal(parsed.overview.levelComparison.direction, "step_up");
+
+  // A model that omits or mangles the additive axes has still answered the question
+  // the panel exists for, so the verdict must survive them.
+  const degraded = validEvidence();
+  degraded.recommendation = { verdict: "weak_fit", headline: "h", rationale: "r", effort: "sometime", effortNote: 42, decisiveFactor: "z".repeat(5000) };
+  degraded.overview.levelComparison = { direction: "sideways", note: "" };
+  const fallback = parseAgentEvidence(degraded, request);
+  assert.equal(fallback.recommendation.verdict, "weak_fit");
+  assert.equal(fallback.recommendation.effort, undefined);
+  assert.equal(fallback.recommendation.effortNote, "");
+  assert.equal(fallback.recommendation.decisiveFactor.length, FIELD_LIMITS.note);
+  assert.equal(fallback.overview.levelComparison, null);
+});
+
+test("JSON is recovered whether the model talks before it or after it", () => {
+  const body = '{"ok":true}';
+  assert.equal(extractJsonText(`Here you go:\n${body}`), body);
+  assert.equal(extractJsonText(`${body}\n\nLet me know if you want it in another format.`), body);
+  assert.equal(extractJsonText("```json\n" + body + "\n```"), body);
 });
 
 test("the caps the model is told match the caps applied to its reply", () => {

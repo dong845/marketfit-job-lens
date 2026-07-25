@@ -40,8 +40,9 @@ export const RESULT_LIMITS = Object.freeze({
 /**
  * Per-field character ceilings, used by BOTH the schema we send and the parser that
  * validates what comes back. They were separate numbers, and the parser's were
- * lower: text() throws above its ceiling, so a reply the schema invited was
- * rejected on arrival and a paid analysis was lost. One table, one ceiling.
+ * lower, so a reply the schema invited was rejected on arrival and a paid analysis
+ * was lost. One table, one ceiling — and outputText trims rather than refuses,
+ * because the wire schema cannot carry these limits to the provider at all.
  */
 export const FIELD_LIMITS = Object.freeze({
   headline: 220,
@@ -50,8 +51,12 @@ export const FIELD_LIMITS = Object.freeze({
   name: 140,
   question: 360,
   shortLabel: 80,
+  note: 300,
   prose: 900
 });
+
+const EFFORT_LEVELS = new Set(["quick", "evening", "multi_day", "not_closable"]);
+const LEVEL_DIRECTIONS = new Set(["step_up", "lateral", "step_down", "unclear"]);
 
 const EVIDENCE_SCHEMA = Object.freeze({
   type: "object",
@@ -83,11 +88,18 @@ export const AGENT_EVIDENCE_SCHEMA = Object.freeze({
     recommendation: {
       type: "object",
       additionalProperties: false,
-      required: ["verdict", "headline", "rationale"],
+      required: ["verdict", "headline", "rationale", "effort", "effortNote", "decisiveFactor"],
       properties: {
         verdict: { type: "string", enum: ["strong_fit", "worth_applying", "stretch", "weak_fit"] },
         headline: { type: "string", minLength: 1, maxLength: FIELD_LIMITS.headline },
-        rationale: { type: "string", minLength: 1, maxLength: FIELD_LIMITS.rationale }
+        rationale: { type: "string", minLength: 1, maxLength: FIELD_LIMITS.rationale },
+        // "Should I apply?" is really "is this worth tonight?". A verdict without a
+        // price tag leaves the reader unable to answer that, however good the prose.
+        effort: { type: "string", enum: ["quick", "evening", "multi_day", "not_closable"] },
+        effortNote: { type: "string", minLength: 1, maxLength: FIELD_LIMITS.note },
+        // The one change that would move the answer, so a weak verdict still leaves
+        // the reader with something to do rather than only a refusal.
+        decisiveFactor: { type: "string", minLength: 1, maxLength: FIELD_LIMITS.note }
       }
     },
     // Conditions the posting itself states. Reporting the employer's own sentence
@@ -110,11 +122,23 @@ export const AGENT_EVIDENCE_SCHEMA = Object.freeze({
     overview: {
       type: "object",
       additionalProperties: false,
-      required: ["jobFocus", "candidatePositioning", "fitNarrative", "evidence"],
+      required: ["jobFocus", "candidatePositioning", "fitNarrative", "levelComparison", "evidence"],
       properties: {
         jobFocus: { type: "string", minLength: 1, maxLength: FIELD_LIMITS.narrative },
         candidatePositioning: { type: "string", minLength: 1, maxLength: FIELD_LIMITS.narrative },
         fitNarrative: { type: "string", minLength: 1, maxLength: FIELD_LIMITS.narrative },
+        // Whether this is a step up, sideways or down against what the CV already
+        // shows. Absent, the reader can tell whether they qualify but not whether
+        // the job is worth having.
+        levelComparison: {
+          type: "object",
+          additionalProperties: false,
+          required: ["direction", "note"],
+          properties: {
+            direction: { type: "string", enum: ["step_up", "lateral", "step_down", "unclear"] },
+            note: { type: "string", minLength: 1, maxLength: FIELD_LIMITS.note }
+          }
+        },
         evidence: { type: "array", minItems: 2, maxItems: 6, items: EVIDENCE_SCHEMA }
       }
     },
@@ -354,10 +378,11 @@ export function parseAgentEvidence(value, request) {
     recommendation: parseRecommendation(result.recommendation),
     statedConditions: parseStatedConditions(result.statedConditions, request),
     overview: {
-      jobFocus: text(overview.jobFocus, "overview.jobFocus", FIELD_LIMITS.narrative),
-      candidatePositioning: text(overview.candidatePositioning, "overview.candidatePositioning", FIELD_LIMITS.narrative),
-      fitNarrative: text(overview.fitNarrative, "overview.fitNarrative", FIELD_LIMITS.narrative),
-      evidence: parseEvidenceList(overview.evidence, request, "overview.evidence", 6, 2)
+      jobFocus: outputText(overview.jobFocus, "overview.jobFocus", FIELD_LIMITS.narrative),
+      candidatePositioning: outputText(overview.candidatePositioning, "overview.candidatePositioning", FIELD_LIMITS.narrative),
+      fitNarrative: outputText(overview.fitNarrative, "overview.fitNarrative", FIELD_LIMITS.narrative),
+      levelComparison: parseLevelComparison(overview.levelComparison),
+      evidence: parseEvidenceList(overview.evidence, request, "overview.evidence", RESULT_LIMITS.overviewEvidence)
     },
     requirements: trim(requirements, "requirements").map((item) => parseRequirement(item, request)),
     strengths: trim(strengths, "strengths").map((item) => parseCitedItem(item, request, "strength")),
@@ -368,9 +393,9 @@ export function parseAgentEvidence(value, request) {
     uncertainties: trim(uncertainties, "uncertainties").map((item) => {
       const uncertainty = object(item, "Each uncertainty must be an object.");
       return {
-        type: text(uncertainty.type, "uncertainty.type", FIELD_LIMITS.shortLabel),
-        message: text(uncertainty.message, "uncertainty.message", FIELD_LIMITS.prose),
-        evidence: parseEvidenceList(uncertainty.evidence, request, "uncertainty.evidence", 4)
+        type: outputText(uncertainty.type, "uncertainty.type", FIELD_LIMITS.shortLabel),
+        message: outputText(uncertainty.message, "uncertainty.message", FIELD_LIMITS.prose),
+        evidence: parseEvidenceList(uncertainty.evidence, request, "uncertainty.evidence", RESULT_LIMITS.evidencePerItem)
       };
     }),
     suggestedActions: trim(suggestedActions, "suggestedActions").map((item) => parseAction(item, request))
@@ -394,7 +419,10 @@ export function extractJsonText(value) {
     const stripped = text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
     if (stripped.startsWith("{")) return stripped;
   }
-  if (text.startsWith("{")) return text;
+  // Take the outermost braces even when the text already starts with one: returning
+  // early there handled a model that talks before the JSON but not one that talks
+  // after it, which is the more common habit on the models with no structured-output
+  // mode to hold them to it.
   const start = text.indexOf("{");
   const end = text.lastIndexOf("}");
   if (start >= 0 && end > start) return text.slice(start, end + 1);
@@ -406,14 +434,38 @@ function parseRecommendation(value) {
   const verdict = typeof value.verdict === "string" ? value.verdict.trim() : "";
   if (!VERDICTS.includes(verdict)) return null;
   try {
+    // effort and decisiveFactor are additive: a model that omits them has still
+    // answered the question the panel exists for, so they must not be able to
+    // take the verdict down with them.
+    const effort = EFFORT_LEVELS.has(value.effort) ? value.effort : null;
     return {
       verdict,
-      headline: text(value.headline, "recommendation.headline", FIELD_LIMITS.headline),
-      rationale: text(value.rationale, "recommendation.rationale", FIELD_LIMITS.rationale)
+      headline: outputText(value.headline, "recommendation.headline", FIELD_LIMITS.headline),
+      rationale: outputText(value.rationale, "recommendation.rationale", FIELD_LIMITS.rationale),
+      ...(effort ? { effort } : {}),
+      effortNote: softText(value.effortNote, FIELD_LIMITS.note),
+      decisiveFactor: softText(value.decisiveFactor, FIELD_LIMITS.note)
     };
   } catch {
     return null;
   }
+}
+
+/** Same tolerance as the recommendation axes: additive, never fatal. */
+function parseLevelComparison(value) {
+  if (!value || typeof value !== "object" || !LEVEL_DIRECTIONS.has(value.direction)) return null;
+  return { direction: value.direction, note: softText(value.note, FIELD_LIMITS.note) };
+}
+
+/**
+ * For fields that enrich an answer rather than constitute it: an over-long or
+ * malformed value becomes empty, never an exception. text() throwing here would
+ * discard a whole paid analysis over an ornament.
+ */
+function softText(value, maxLength) {
+  if (typeof value !== "string") return "";
+  const normalized = value.trim();
+  return normalized.length > maxLength ? normalized.slice(0, maxLength).trim() : normalized;
 }
 
 /** Conditions the employer stated. Anything unrecognisable is dropped, not guessed. */
@@ -424,8 +476,8 @@ function parseStatedConditions(value, request) {
     try {
       return [{
         type: item.type,
-        statement: text(item.statement, "statedCondition.statement", FIELD_LIMITS.prose),
-        evidence: parseEvidenceList(item.evidence, request, "statedCondition.evidence", 4)
+        statement: outputText(item.statement, "statedCondition.statement", FIELD_LIMITS.prose),
+        evidence: parseEvidenceList(item.evidence, request, "statedCondition.evidence", RESULT_LIMITS.evidencePerItem)
       }];
     } catch {
       return [];
@@ -443,22 +495,22 @@ function parseRequirement(value, request) {
   const screening = SCREENING_ROLES.has(requirement.screening) ? requirement.screening : null;
   const recency = RECENCY_STATES.has(requirement.recency) ? requirement.recency : null;
   return {
-    name: text(requirement.name, "requirement.name", FIELD_LIMITS.name),
+    name: outputText(requirement.name, "requirement.name", FIELD_LIMITS.name),
     level,
     ...(screening ? { screening } : {}),
     match,
     ...(recency ? { recency } : {}),
-    evidence: parseEvidenceList(requirement.evidence, request, "requirement.evidence", 4),
-    explanation: text(requirement.explanation, "requirement.explanation", FIELD_LIMITS.prose)
+    evidence: parseEvidenceList(requirement.evidence, request, "requirement.evidence", RESULT_LIMITS.evidencePerItem),
+    explanation: outputText(requirement.explanation, "requirement.explanation", FIELD_LIMITS.prose)
   };
 }
 
 function parseCitedItem(value, request, label) {
   const item = object(value, `Each ${label} must be an object.`);
   return {
-    title: text(item.title, `${label}.title`, FIELD_LIMITS.name),
-    summary: text(item.summary, `${label}.summary`, FIELD_LIMITS.prose),
-    evidence: parseEvidenceList(item.evidence, request, `${label}.evidence`, 4)
+    title: outputText(item.title, `${label}.title`, FIELD_LIMITS.name),
+    summary: outputText(item.summary, `${label}.summary`, FIELD_LIMITS.prose),
+    evidence: parseEvidenceList(item.evidence, request, `${label}.evidence`, RESULT_LIMITS.evidencePerItem)
   };
 }
 
@@ -467,30 +519,30 @@ function parseSeverityItem(value, request, label) {
   const severity = text(item.severity, `${label}.severity`, 20);
   if (!GAP_SEVERITIES.has(severity)) throw new BridgeError("OUTPUT_UNTRUSTED", `Provider returned an invalid ${label} severity.`);
   return {
-    title: text(item.title, `${label}.title`, FIELD_LIMITS.name),
+    title: outputText(item.title, `${label}.title`, FIELD_LIMITS.name),
     severity,
-    summary: text(item.summary, `${label}.summary`, FIELD_LIMITS.prose),
+    summary: outputText(item.summary, `${label}.summary`, FIELD_LIMITS.prose),
     ...(CLOSABILITY.has(item.closable) ? { closable: item.closable } : {}),
-    howToClose: optionalText(item.howToClose, `${label}.howToClose`, FIELD_LIMITS.prose),
-    evidence: parseEvidenceList(item.evidence, request, `${label}.evidence`, 4)
+    howToClose: softText(item.howToClose, FIELD_LIMITS.prose),
+    evidence: parseEvidenceList(item.evidence, request, `${label}.evidence`, RESULT_LIMITS.evidencePerItem)
   };
 }
 
 function parseTailoringItem(value, request) {
   const item = object(value, "Each resumeTailoring item must be an object.");
   return {
-    target: text(item.target, "resumeTailoring.target", FIELD_LIMITS.name),
-    recommendation: text(item.recommendation, "resumeTailoring.recommendation", FIELD_LIMITS.prose),
-    evidence: parseEvidenceList(item.evidence, request, "resumeTailoring.evidence", 4)
+    target: outputText(item.target, "resumeTailoring.target", FIELD_LIMITS.name),
+    recommendation: outputText(item.recommendation, "resumeTailoring.recommendation", FIELD_LIMITS.prose),
+    evidence: parseEvidenceList(item.evidence, request, "resumeTailoring.evidence", RESULT_LIMITS.evidencePerItem)
   };
 }
 
 function parseInterviewItem(value, request) {
   const item = object(value, "Each interviewFocus item must be an object.");
   return {
-    question: text(item.question, "interviewFocus.question", FIELD_LIMITS.question),
-    rationale: text(item.rationale, "interviewFocus.rationale", FIELD_LIMITS.prose),
-    evidence: parseEvidenceList(item.evidence, request, "interviewFocus.evidence", 4)
+    question: outputText(item.question, "interviewFocus.question", FIELD_LIMITS.question),
+    rationale: outputText(item.rationale, "interviewFocus.rationale", FIELD_LIMITS.prose),
+    evidence: parseEvidenceList(item.evidence, request, "interviewFocus.evidence", RESULT_LIMITS.evidencePerItem)
   };
 }
 
@@ -499,15 +551,25 @@ function parseAction(value, request) {
   const priority = text(item.priority, "suggestedActions.priority", 30);
   if (!ACTION_PRIORITIES.has(priority)) throw new BridgeError("OUTPUT_UNTRUSTED", "Provider returned an invalid action priority.");
   return {
-    action: text(item.action, "suggestedActions.action", FIELD_LIMITS.prose),
+    action: outputText(item.action, "suggestedActions.action", FIELD_LIMITS.prose),
     priority,
-    evidence: parseEvidenceList(item.evidence, request, "suggestedActions.evidence", 4)
+    evidence: parseEvidenceList(item.evidence, request, "suggestedActions.evidence", RESULT_LIMITS.evidencePerItem)
   };
 }
 
-function parseEvidenceList(value, request, label, maxItems, minItems = 1) {
+/**
+ * Resolves each reference to the source block it names, dropping any that does not
+ * resolve — that is what stops the model inventing support for a claim.
+ *
+ * An empty list is not an error. minItems is stripped from the wire schema like
+ * every other constraint keyword, so a reply with "evidence": [] is schema-valid,
+ * and rejecting it discarded the analysis while an INVENTED ref sailed through to
+ * the same empty array. Punishing the honest shape and passing the dishonest one
+ * is exactly backwards, so both now land on [].
+ */
+function parseEvidenceList(value, request, label, maxItems) {
   const evidence = Array.isArray(value) ? value : [];
-  const resolved = evidence.slice(0, maxItems).flatMap((item) => {
+  return evidence.slice(0, maxItems).flatMap((item) => {
     try {
       const parsed = parseEvidence(item, request);
       return parsed ? [parsed] : [];
@@ -515,8 +577,6 @@ function parseEvidenceList(value, request, label, maxItems, minItems = 1) {
       return [];
     }
   });
-  if (resolved.length < minItems && evidence.length === 0) throw new BridgeError("OUTPUT_UNTRUSTED", `${label} needs ${minItems}-${maxItems} evidence references.`);
-  return resolved;
 }
 
 function parseEvidence(value, request) {
@@ -556,6 +616,22 @@ function text(value, label, maxLength) {
   const normalized = value.trim();
   if (normalized.length > maxLength) throw new BridgeError("SCHEMA_INVALID", `${label} is too long.`);
   return normalized;
+}
+
+/**
+ * A required string coming back FROM a provider.
+ *
+ * Same as text() except that over-long is trimmed rather than refused. The wire
+ * schema has maxLength stripped out — strict modes reject the keyword — so the
+ * provider is never told these ceilings and cannot be blamed for exceeding one.
+ * Refusing then threw away a whole paid analysis because a single explanation ran
+ * long, which is the one outcome the limits exist to avoid. Lists already trim;
+ * strings now behave the same way.
+ */
+function outputText(value, label, maxLength) {
+  if (typeof value !== "string" || !value.trim()) throw new BridgeError("SCHEMA_INVALID", `${label} is required.`);
+  const normalized = value.trim();
+  return normalized.length > maxLength ? normalized.slice(0, maxLength).trim() : normalized;
 }
 
 function optionalText(value, label, maxLength) {

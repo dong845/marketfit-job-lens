@@ -165,36 +165,57 @@ async function postJson(fetchImpl, url, { headers, body, withoutStructuredOutput
   }
 }
 
+const TIMEOUT_MESSAGE = "The selected AI provider did not finish in time. Try a faster model, or shorten the job description.";
+
+/**
+ * One request, one deadline.
+ *
+ * The timeout covers reading the body as well as getting the headers. fetch()
+ * resolves as soon as the headers land, so cancelling the abort at that point left
+ * a stalled body with nothing to interrupt it — the panel's elapsed counter would
+ * climb past the timeout forever and the run button never came back.
+ */
 async function sendJson(fetchImpl, url, headers, body) {
-  const response = await fetchWithTimeout(fetchImpl, url, { method: "POST", headers, body: JSON.stringify(body) });
-  let payload;
-  try {
-    payload = await response.json();
-  } catch {
-    throw new DirectApiError("The selected AI provider returned an unreadable response.");
-  }
-  if (!response.ok) {
-    const message = String(payload?.error?.message || payload?.message || "The selected AI provider rejected the request.").slice(0, 500);
-    if (response.status === 400 && /schema|output_config|json_schema|format/i.test(message)) throw new StructuredOutputRejected(message);
-    throw new DirectApiError(message);
-  }
-  return payload;
-}
-
-class StructuredOutputRejected extends Error {}
-
-async function fetchWithTimeout(fetchImpl, url, options) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   try {
-    return await fetchImpl(url, { ...options, signal: controller.signal });
-  } catch (error) {
-    if (controller.signal.aborted) throw new DirectApiError("The selected AI provider did not finish in time. Try a faster model, or shorten the job description.");
-    // Keep the underlying cause: "could not be reached" alone hides whether it was
-    // DNS, TLS, a proxy, or the network being down, which is the whole diagnosis.
-    const cause = error?.cause?.code || error?.cause?.message || error?.message;
-    throw new DirectApiError(cause ? `The selected AI provider could not be reached (${String(cause).slice(0, 120)}).` : "The selected AI provider could not be reached.");
+    let response;
+    try {
+      response = await fetchImpl(url, { method: "POST", headers, body: JSON.stringify(body), signal: controller.signal });
+    } catch (error) {
+      if (controller.signal.aborted) throw new DirectApiError(TIMEOUT_MESSAGE);
+      // Keep the underlying cause: "could not be reached" alone hides whether it was
+      // DNS, TLS, a proxy, or the network being down, which is the whole diagnosis.
+      const cause = error?.cause?.code || error?.cause?.message || error?.message;
+      throw new DirectApiError(cause ? `The selected AI provider could not be reached (${String(cause).slice(0, 120)}).` : "The selected AI provider could not be reached.");
+    }
+    let payload = null;
+    try {
+      payload = await response.json();
+    } catch {
+      if (controller.signal.aborted) throw new DirectApiError(TIMEOUT_MESSAGE);
+    }
+    // Status first. Parsing before checking it meant an edge or proxy page — which
+    // is how rate limits and outages usually arrive — erased the one fact that
+    // told the user whether to wait, slow down, or fix their key.
+    if (!response.ok) {
+      const message = String(payload?.error?.message || payload?.message || "").slice(0, 500);
+      if (response.status === 400 && /schema|output_config|json_schema|format/i.test(message)) throw new StructuredOutputRejected(message);
+      throw new DirectApiError(message || statusMessage(response.status));
+    }
+    if (!payload) throw new DirectApiError("The selected AI provider returned an unreadable response.");
+    return payload;
   } finally {
     clearTimeout(timer);
   }
 }
+
+/** What an HTTP status means for someone who just paid for an analysis. */
+function statusMessage(status) {
+  if (status === 401 || status === 403) return `The AI provider rejected the API key (HTTP ${status}). Check the key and try again.`;
+  if (status === 429) return "The AI provider is rate limiting this key (HTTP 429). Wait a moment and try again.";
+  if (status >= 500) return `The AI provider is unavailable right now (HTTP ${status}). Try again shortly.`;
+  return `The AI provider rejected the request (HTTP ${status}).`;
+}
+
+class StructuredOutputRejected extends Error {}
