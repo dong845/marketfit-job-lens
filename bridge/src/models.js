@@ -68,6 +68,9 @@ export const MODELS = Object.freeze({
   }
 });
 
+/** CLI routes are addressed by provider name, not a model id. */
+export const CLI_TYPICAL_SECONDS = Object.freeze({ codex: 180, "claude-code": 180 });
+
 export const DEFAULT_MODEL = Object.freeze({
   "openai-api": "gpt-5-mini",
   "anthropic-api": "claude-sonnet-5"

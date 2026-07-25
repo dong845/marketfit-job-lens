@@ -3,7 +3,7 @@ import { captureActiveTab, isSameJobPage, requestOptionalSiteAccess, siteOriginF
 import { createDirectApiClient } from "../ai/directApiClient.js";
 import { buildRemoteTransmissionPreview } from "../privacy/redaction.js";
 import { createBridgeClient, isApiProvider, isCliProvider } from "../bridge/bridgeClient.js";
-import { MODELS, modelsForProvider } from "../../bridge/src/models.js";
+import { CLI_TYPICAL_SECONDS, MODELS, modelsForProvider } from "../../bridge/src/models.js";
 import { configurePdfWorker, extractResumePdf } from "../profile/pdfResume.js";
 import { applyTranslations, format, t } from "../ui/i18n.js";
 import { escapeHtml, renderAnalysisHtml } from "../ui/analysisView.js";
@@ -554,7 +554,7 @@ function startElapsedTimer(model, estimate) {
  * reflects the user's own network and job sizes rather than a number we invented.
  */
 async function estimateSeconds(model) {
-  const fallback = MODELS[model]?.typicalSeconds || 60;
+  const fallback = MODELS[model]?.typicalSeconds || CLI_TYPICAL_SECONDS[model] || 60;
   try {
     const stored = await chrome.storage.local.get(TIMING_KEY);
     return Math.round(stored[TIMING_KEY]?.[model] || fallback);

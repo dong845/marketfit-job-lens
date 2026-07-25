@@ -39,7 +39,7 @@ async function runCodex(request, runProcessImpl) {
       "--output-schema", schemaPath, "--output-last-message", outputPath, "-"
     ], {
       cwd: directory,
-      env: minimalEnvironment(),
+      env: inheritedEnvironment(),
       stdin: `${AGENT_SYSTEM_POLICY}\n\n${buildAnalyzePrompt(request)}`
     });
     return parseAgentEvidence(parseJsonOutput(await readFile(outputPath, "utf8")), request);
@@ -54,7 +54,7 @@ async function runClaude(request, runProcessImpl) {
       "-p", "--no-session-persistence", "--tools", "", "--setting-sources", "local", "--strict-mcp-config", "--mcp-config", mcpPath,
       "--system-prompt", AGENT_SYSTEM_POLICY, "--json-schema", outputSchemaJson(), "--output-format", "text", buildClaudeInstruction()
     ];
-    const env = minimalEnvironment();
+    const env = inheritedEnvironment();
     const result = await runProcessImpl("claude", args, { cwd: directory, env, stdin: buildAnalyzePrompt(request) });
     return parseAgentEvidence(parseJsonOutput(extractJson(result.stdout)), request);
   });
@@ -106,7 +106,7 @@ async function runAnthropic(request, fetchImpl) {
 
 async function commandHealth(command, args, runProcessImpl) {
   try {
-    const result = await runProcessImpl(command, args, { timeoutMs: 3000, env: minimalEnvironment() });
+    const result = await runProcessImpl(command, args, { timeoutMs: 3000, env: inheritedEnvironment() });
     return { available: true, version: result.stdout.trim() || result.stderr.trim() || "detected" };
   } catch {
     return { available: false };
@@ -158,8 +158,21 @@ async function withTaskDirectory(prefix, operation) {
   }
 }
 
-function minimalEnvironment(extra = {}) {
-  const allowed = ["HOME", "PATH", "LANG", "LC_ALL", "LC_CTYPE", "TMPDIR"];
-  const environment = Object.fromEntries(allowed.flatMap((key) => process.env[key] ? [[key, process.env[key]]] : []));
-  return { ...environment, ...extra };
+/**
+ * The CLI runs with the environment the user runs it with.
+ *
+ * This used to allowlist six variables. Codex and Claude Code authenticate with
+ * the login already on the machine, and that login did not survive the pruning:
+ * `claude` reported "Not logged in · Please run /login" under the allowlist and
+ * succeeded immediately with the inherited environment. The allowlist was
+ * protecting a subprocess that is the user's own tool, holding the user's own
+ * credentials, run against the user's own machine — while silently removing the
+ * only thing that made the free route work.
+ *
+ * What actually contains the subprocess is unchanged and does the real work:
+ * no shell, a read-only sandbox for codex, a wall-clock timeout, and an output
+ * size cap.
+ */
+function inheritedEnvironment(extra = {}) {
+  return { ...process.env, ...extra };
 }

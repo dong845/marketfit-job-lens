@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { readFileSync } from "node:fs";
 import { createBridgeServer } from "../bridge/src/server.js";
 import { createMemoryStore } from "../bridge/src/state.js";
 import { createProviderRouter } from "../bridge/src/providers.js";
@@ -442,4 +443,54 @@ test("the stored bridge secret is written owner-only", async () => {
   const mode = (await stat(store.path)).mode & 0o777;
   assert.equal(mode, 0o600, `bridge state must be owner-only, got ${mode.toString(8)}`);
   assert.equal((await store.load()).pairCode, "c".repeat(18));
+});
+
+test("a failed CLI reports what it said, not just its exit code", async () => {
+  // "Provider exited with code 1" was all the user got when Codex said the usage
+  // limit was exhausted, and when Claude Code said it was not logged in.
+  const { runProcess } = await import("../bridge/src/process.js");
+
+  await assert.rejects(
+    () => runProcess(process.execPath, ["-e", 'console.error("ERROR: You have hit your usage limit. Try again Jul 29."); process.exit(1);'], {}),
+    /hit your usage limit/,
+    "stderr must reach the user"
+  );
+
+  // Claude Code prints its failure on stdout and leaves stderr empty.
+  await assert.rejects(
+    () => runProcess(process.execPath, ["-e", 'console.log("Not logged in \\u00b7 Please run /login"); process.exit(1);'], {}),
+    /Not logged in/,
+    "stdout must be used when stderr is empty"
+  );
+});
+
+test("retry noise and log prefixes are stripped from the reported reason", async () => {
+  const { runProcess } = await import("../bridge/src/process.js");
+  const script = [
+    'console.error("2026-07-25T13:29:49.777031Z ERROR codex_models_manager::cache: failed to load models cache");',
+    'console.error("ERROR: Reconnecting... 2/5");',
+    'console.error("ERROR: Reconnecting... 5/5");',
+    'console.error("ERROR: You have hit your usage limit.");',
+    "process.exit(1);"
+  ].join("");
+  await assert.rejects(() => runProcess(process.execPath, ["-e", script], {}), (error) => {
+    assert.match(error.message, /You have hit your usage limit\./);
+    assert.equal(/Reconnecting/.test(error.message), false, "retry chatter must not be the reported reason");
+    assert.equal(/^\d{4}-/.test(error.message), false);
+    return true;
+  });
+});
+
+test("the CLI runs with the user's environment, which is what holds its login", async () => {
+  // An allowlist of six variables made `claude` report "Not logged in" while the
+  // user was logged in. Inheriting the environment is what the free route needs.
+  const providers = readFileSync(new URL("../bridge/src/providers.js", import.meta.url), "utf8");
+  assert.equal(providers.includes("minimalEnvironment"), false);
+  assert.match(providers, /function inheritedEnvironment/);
+  assert.match(providers, /\.\.\.process\.env/);
+  // The containment that does the real work must stay.
+  assert.match(providers, /"--sandbox", "read-only"/);
+  const process_ = readFileSync(new URL("../bridge/src/process.js", import.meta.url), "utf8");
+  assert.match(process_, /shell: false/);
+  assert.match(process_, /MAX_OUTPUT_BYTES/);
 });
