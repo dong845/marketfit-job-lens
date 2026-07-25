@@ -31,9 +31,6 @@ export function createNormalizedJob(input = {}) {
   };
 }
 
-export function validateNormalizedJob(job) {
-  return Boolean(job) && typeof job.sourceText === "string" && job.extraction && Number.isFinite(job.extraction.confidence);
-}
 
 export function cleanText(value) {
   return String(value ?? "").replace(/\s+/g, " ").trim();

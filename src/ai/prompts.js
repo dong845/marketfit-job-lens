@@ -1,4 +1,4 @@
-import { AGENT_EVIDENCE_SCHEMA, RESULT_LIMITS, wireSchema } from "./schema.js";
+import { RESULT_LIMITS, wireSchema } from "./schema.js";
 import { buildEvidenceBlockBundle } from "./evidenceBlocks.js";
 
 export const AGENT_SYSTEM_POLICY = [
@@ -47,16 +47,12 @@ export function buildAnalyzePrompt(request) {
   ].join("\n");
 }
 
-export function buildClaudeInstruction() {
-  return "Read the untrusted request JSON from stdin and return only the validated evidence JSON described by the schema.";
-}
 
-/** Full schema, constraints included — for CLI providers, which accept them. */
-export function outputSchemaJson() {
-  return JSON.stringify(AGENT_EVIDENCE_SCHEMA);
-}
-
-/** Constraint-stripped schema for provider strict/structured-output modes. */
+/**
+ * The schema sent to a provider, stripped of the constraint keywords that strict
+ * and structured-output modes restrict. AGENT_EVIDENCE_SCHEMA remains the source
+ * of truth for those bounds; parseAgentEvidence applies them on the way back.
+ */
 export function wireSchemaJson() {
   return JSON.stringify(wireSchema());
 }
