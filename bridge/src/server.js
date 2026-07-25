@@ -2,6 +2,7 @@ import { createServer } from "node:http";
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { createProviderRouter } from "./providers.js";
 import { BridgeError, parseTaskRequest } from "./schema.js";
+import { createMemoryStore } from "./state.js";
 
 const MAX_BODY_BYTES = 256 * 1024;
 const EXTENSION_ORIGIN = /^chrome-extension:\/\/[a-p]{32}$/;
@@ -13,13 +14,15 @@ export function createBridgeServer({
   pairCode = randomSecret(18),
   token = randomSecret(32),
   router = createProviderRouter(),
-  logger = () => {}
+  logger = () => {},
+  store = createMemoryStore()
 } = {}) {
   let pairedOrigin = null;
   let pairedExtensionId = null;
   let requiresIdentityHeader = false;
   let pairingAvailable = true;
   let listening = false;
+  let restored = false;
   const server = createServer((request, response) => {
     handleRequest(request, response).catch((error) => {
       writeError(response, error, request.headers.origin, pairedOrigin);
@@ -29,6 +32,20 @@ export function createBridgeServer({
   return {
     async start() {
       if (listening) return server.address();
+      // Reuse the previous identity so a restart does not invalidate a pairing the
+      // user already completed, and so the code they were given still works.
+      const saved = await store.load();
+      if (saved) {
+        token = saved.token;
+        pairCode = saved.pairCode;
+        pairedOrigin = saved.pairedOrigin ?? null;
+        pairedExtensionId = saved.pairedExtensionId ?? null;
+        requiresIdentityHeader = Boolean(saved.requiresIdentityHeader);
+        pairingAvailable = !pairedExtensionId;
+        restored = true;
+      } else {
+        await persist();
+      }
       await new Promise((resolve, reject) => {
         server.once("error", reject);
         server.listen({ host, port }, () => {
@@ -38,7 +55,14 @@ export function createBridgeServer({
       });
       listening = true;
       const address = server.address();
-      return { host, port: address.port, url: `http://${host}:${address.port}`, pairCode };
+      return {
+        host,
+        port: address.port,
+        url: `http://${host}:${address.port}`,
+        pairCode,
+        alreadyPaired: Boolean(pairedExtensionId),
+        restored
+      };
     },
     async stop() {
       if (!listening) return;
@@ -47,6 +71,10 @@ export function createBridgeServer({
     },
     server
   };
+
+  async function persist() {
+    await store.save({ token, pairCode, pairedOrigin, pairedExtensionId, requiresIdentityHeader });
+  }
 
   async function handleRequest(request, response) {
     const origin = String(request.headers.origin || "");
@@ -71,6 +99,7 @@ export function createBridgeServer({
       pairedExtensionId = extensionId;
       requiresIdentityHeader = fallbackIdentity;
       pairingAvailable = false;
+      await persist();
       logger({ event: "paired", origin: origin || "extension-origin-unavailable" });
       return writeJson(response, 200, { bridgeVersion: "0.3.1", token }, origin);
     }
@@ -102,6 +131,11 @@ export function createBridgeServer({
       pairedExtensionId = null;
       requiresIdentityHeader = false;
       pairingAvailable = false;
+      // A new secret on unpair, so a disconnected extension's token is dead even
+      // if it kept a copy.
+      token = randomSecret(32);
+      pairCode = randomSecret(18);
+      await persist();
       logger({ event: "unpaired" });
       return writeJson(response, 200, { status: "unpaired" }, origin);
     }

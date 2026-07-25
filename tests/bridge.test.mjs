@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createBridgeServer } from "../bridge/src/server.js";
+import { createMemoryStore } from "../bridge/src/state.js";
 import { createProviderRouter } from "../bridge/src/providers.js";
 import { MODELS } from "../bridge/src/models.js";
 import { BridgeError, parseAgentEvidence, parseTaskRequest, RESULT_LIMITS } from "../bridge/src/schema.js";
@@ -355,4 +356,90 @@ test("the caps the model is told match the caps applied to its reply", () => {
   for (const key of ["requirements", "strengths", "gaps", "risks", "resumeTailoring", "interviewFocus", "uncertainties", "suggestedActions"]) {
     assert.equal(schema.properties[key].maxItems, RESULT_LIMITS[key], `${key} cap drifted between schema and parser`);
   }
+});
+
+test("a restart keeps the pairing instead of silently invalidating it", async () => {
+  // token and pairCode used to be generated per process and the paired extension
+  // forgotten, so every restart broke a pairing the user had already completed —
+  // and the code needed to fix it only existed in a terminal they may have closed.
+  const store = createMemoryStore();
+  const id = "a".repeat(32);
+  const origin = `chrome-extension://${id}`;
+  const router = { async health() { return { codex: { available: true } }; }, async runTask() { return {}; } };
+
+  let bridge = createBridgeServer({ port: 0, router, store });
+  let info = await bridge.start();
+  assert.equal(info.alreadyPaired, false);
+  const paired = await fetch(`http://127.0.0.1:${info.port}/v1/pair`, {
+    method: "POST", headers: { "content-type": "application/json", origin },
+    body: JSON.stringify({ code: info.pairCode, extensionId: id })
+  });
+  const { token } = await paired.json();
+  await bridge.stop();
+
+  bridge = createBridgeServer({ port: 0, router, store });
+  info = await bridge.start();
+  assert.equal(info.alreadyPaired, true, "the restarted bridge must remember the pairing");
+  const health = await fetch(`http://127.0.0.1:${info.port}/v1/health`, { headers: { origin, authorization: `Bearer ${token}` } });
+  assert.equal(health.status, 200, "the token issued before the restart must still work");
+  await bridge.stop();
+});
+
+test("restarting does not weaken who the bridge accepts", async () => {
+  const store = createMemoryStore();
+  const id = "b".repeat(32);
+  const origin = `chrome-extension://${id}`;
+  const router = { async health() { return {}; }, async runTask() { return {}; } };
+
+  let bridge = createBridgeServer({ port: 0, router, store });
+  let info = await bridge.start();
+  const { token } = await (await fetch(`http://127.0.0.1:${info.port}/v1/pair`, {
+    method: "POST", headers: { "content-type": "application/json", origin },
+    body: JSON.stringify({ code: info.pairCode, extensionId: id })
+  })).json();
+  await bridge.stop();
+
+  bridge = createBridgeServer({ port: 0, router, store });
+  info = await bridge.start();
+  const foreign = await fetch(`http://127.0.0.1:${info.port}/v1/health`, { headers: { origin: "https://evil.example", authorization: `Bearer ${token}` } });
+  const badToken = await fetch(`http://127.0.0.1:${info.port}/v1/health`, { headers: { origin, authorization: "Bearer wrong" } });
+  assert.equal(foreign.status, 403);
+  assert.equal(badToken.status, 401);
+  await bridge.stop();
+});
+
+test("disconnecting kills the old token even across a restart", async () => {
+  const store = createMemoryStore();
+  const id = "c".repeat(32);
+  const origin = `chrome-extension://${id}`;
+  const router = { async health() { return {}; }, async runTask() { return {}; } };
+
+  let bridge = createBridgeServer({ port: 0, router, store });
+  let info = await bridge.start();
+  const { token } = await (await fetch(`http://127.0.0.1:${info.port}/v1/pair`, {
+    method: "POST", headers: { "content-type": "application/json", origin },
+    body: JSON.stringify({ code: info.pairCode, extensionId: id })
+  })).json();
+  await fetch(`http://127.0.0.1:${info.port}/v1/unpair`, { method: "POST", headers: { origin, authorization: `Bearer ${token}` } });
+  await bridge.stop();
+
+  bridge = createBridgeServer({ port: 0, router, store });
+  info = await bridge.start();
+  const reused = await fetch(`http://127.0.0.1:${info.port}/v1/health`, { headers: { origin, authorization: `Bearer ${token}` } });
+  assert.notEqual(reused.status, 200, "a disconnected extension's token must not survive");
+  await bridge.stop();
+});
+
+test("the stored bridge secret is written owner-only", async () => {
+  const { createFileStore } = await import("../bridge/src/state.js");
+  const { mkdtemp, stat } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join: joinPath } = await import("node:path");
+
+  const directory = await mkdtemp(joinPath(tmpdir(), "marketfit-state-"));
+  const store = createFileStore(joinPath(directory, "nested", "bridge.json"));
+  assert.equal(await store.save({ token: "t".repeat(32), pairCode: "c".repeat(18) }), true);
+  const mode = (await stat(store.path)).mode & 0o777;
+  assert.equal(mode, 0o600, `bridge state must be owner-only, got ${mode.toString(8)}`);
+  assert.equal((await store.load()).pairCode, "c".repeat(18));
 });

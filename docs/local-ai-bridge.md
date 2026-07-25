@@ -34,3 +34,24 @@ Codex tasks use `codex exec --ephemeral` with a read-only sandbox. Claude Code t
 This is a local development/power-user integration, not yet a production Native Messaging implementation. Its required host permission is limited to `http://127.0.0.1/*`; provider API domains are optional and requested only for the provider selected at analysis time. It does not auto-fallback from one provider to another, browse job boards, modify files, submit applications, or make legal/immigration/hiring decisions.
 
 Use **Disconnect** to remove the extension's saved loopback token. To pair again after that, restart the Bridge and use its new one-time code.
+
+## Pairing survives restarts
+
+The bridge keeps its token, pairing code, and paired extension in
+`~/.marketfit/bridge.json`, written `0600` inside a `0700` directory.
+
+Before this existed, both secrets were generated per process and the paired
+extension was forgotten on exit, so restarting the bridge silently invalidated a
+pairing the user had already completed — and the code needed to repair it lived
+only in the stdout of a terminal that may have been closed. The panel could only
+report that the saved pairing was unavailable.
+
+- Restarting the bridge keeps the pairing; the panel reconnects with no action.
+- `npm run bridge` prints `Already paired with MarketFit` when that is the case.
+- **Disconnect** in the panel clears the pairing *and* rotates both secrets, so a
+  disconnected extension's token is dead even if it kept a copy.
+- To reset by hand, delete `~/.marketfit/bridge.json` and start the bridge again.
+
+The file holds a loopback-only bearer token and is handled like a CLI credential.
+This is still a development-grade transport; see the Native Messaging note in the
+implementation report before wide distribution.
