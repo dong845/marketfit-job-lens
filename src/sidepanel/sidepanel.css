@@ -60,15 +60,8 @@ button:disabled { cursor: wait; opacity: .65; }
 .empty { border: 1px dashed var(--line); color: var(--muted); font-size: 13px; padding: 16px; text-align: center; }
 .action-message { background: var(--soft-warn); border-color: #eed6a6; color: #6c4b16; }
 .redaction-preview { background: #f1f4f5; border: 1px solid var(--line); border-radius: 6px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; overflow-wrap: anywhere; padding: 8px; white-space: pre-wrap; }
-.agent-state { background: var(--soft-teal); border-left: 3px solid var(--accent); color: #21464b; font-size: 12px; line-height: 1.45; padding: 8px 9px; }
 code { font-size: 11px; }
 
-/* Guided bridge setup: the free route needs to read as a recipe, not a form. */
-.bridge-setup { background: #f1f4f5; border: 1px solid var(--line); border-radius: 6px; display: grid; gap: 6px; padding: 10px; }
-.bridge-setup h3 { font-size: 12px; }
-.command-row { align-items: center; background: var(--ink); border-radius: 6px; display: flex; gap: 8px; justify-content: space-between; padding: 7px 9px; }
-.command-row code { color: #eaf2f3; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; overflow-wrap: anywhere; }
-.command-row button { flex: 0 0 auto; min-height: 26px; }
 
 /* Analysis output */
 .result { display: grid; gap: 10px; }

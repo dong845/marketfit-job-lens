@@ -54,36 +54,11 @@
           <label><span data-i18n="provider">AI provider</span>
             <select id="agentProvider">
               <option value="" data-i18n="chooseProvider">Choose a provider</option>
-              <optgroup id="cliProviderGroup" label="Free">
-                <option value="codex" data-i18n="codex">Codex CLI</option>
-                <option value="claude-code" data-i18n="claudeCode">Claude Code</option>
-              </optgroup>
-              <optgroup id="apiProviderGroup" label="API key">
-                <option value="openai-api" data-i18n="openaiApi">OpenAI API key</option>
-                <option value="anthropic-api" data-i18n="anthropicApi">Anthropic API key</option>
-              </optgroup>
+              <option value="openai-api" data-i18n="openaiApi">OpenAI</option>
+              <option value="anthropic-api" data-i18n="anthropicApi">Anthropic</option>
+              <option value="deepseek-api" data-i18n="deepseekApi">DeepSeek</option>
             </select>
           </label>
-
-          <div id="cliBridgeMode" class="provider-mode" hidden>
-            <p class="help" data-i18n="cliBridgeHelp">Codex CLI and Claude Code use the login you already have on this machine.</p>
-            <div id="bridgeSetup" class="bridge-setup">
-              <h3 data-i18n="bridgeSetupTitle">One-time setup</h3>
-              <p class="help" data-i18n="bridgeSetupIntro">Run this in a terminal, inside the MarketFit folder.</p>
-              <div class="command-row">
-                <code id="bridgeCommand">npm run bridge -- --port 8765</code>
-                <button id="copyBridgeCommand" class="quiet" type="button" data-i18n="copyCommand">Copy</button>
-              </div>
-              <p class="help subtle" data-i18n="bridgeSetupNote">Keep that terminal open while you use MarketFit.</p>
-            </div>
-            <p id="bridgeState" class="agent-state"></p>
-            <div class="field-grid">
-              <label><span data-i18n="bridgePort">Bridge port</span><input id="bridgePort" type="number" min="1024" max="65535" inputmode="numeric" value="8765" /></label>
-              <label><span data-i18n="pairingCode">One-time pairing code</span><input id="pairingCode" type="password" autocomplete="off" /></label>
-            </div>
-            <div class="control-row"><button id="pairBridge" class="secondary" type="button" data-i18n="pairBridge">Pair bridge</button><button id="refreshBridge" class="quiet" type="button" data-i18n="refreshStatus">Refresh status</button><button id="disconnectBridge" class="quiet" type="button" data-i18n="disconnect">Disconnect</button></div>
-          </div>
-
           <div id="apiProviderMode" class="provider-mode" hidden>
             <label><span data-i18n="sessionApiKey">Session API key</span><input id="apiKey" type="password" autocomplete="off" /></label>
             <label><span data-i18n="apiModel">Model</span><select id="apiModel"></select></label>
@@ -91,7 +66,7 @@
             <div id="accessRetryRow" class="control-row" hidden><button id="retryProviderAccess" class="secondary" type="button" data-i18n="retryAccess">Allow provider access</button></div>
           </div>
 
-          <p class="help" data-i18n="agentPrivacy">CLI providers use the paired local Bridge. API-key providers connect directly to their selected provider only after you run an analysis.</p>
+          <p class="help" data-i18n="agentPrivacy">Running an analysis sends your CV text and the captured job page directly to the provider you chose, and to no one else.</p>
           <p id="runProgress" class="run-progress" role="status" hidden></p>
           <button id="runAgentReview" class="primary analyze-command" type="button" data-i18n="runAiReview">Analyze current job with AI</button>
         </div>
@@ -106,9 +81,9 @@
           <ul class="permission-list">
             <li><code>activeTab</code>: <span data-i18n="permActiveTab">capture the current visible page after a click.</span></li>
             <li><code>scripting</code>: <span data-i18n="permScripting">run that one-time visible-page extractor.</span></li>
-            <li><code>storage</code>: <span data-i18n="permStorage">save interface language and the paired local Bridge token.</span></li>
+            <li><code>storage</code>: <span data-i18n="permStorage">save interface language and timing estimates.</span></li>
             <li><code>sidePanel</code>: <span data-i18n="permSidePanel">show this workspace.</span></li>
-            <li data-i18n="extensionPermission">CLI providers use the paired local Bridge.</li>
+            <li data-i18n="extensionPermission">Access to a provider’s API domain is requested only when you select it.</li>
           </ul>
         </div>
       </details>

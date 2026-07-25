@@ -142,7 +142,7 @@ test("dropping the display does not drop the grounding that produced it", async 
   // The model must still cite real CV-nnn / JD-nnn blocks, and every reference is
   // resolved back to actual source text — an unresolvable one is discarded. That
   // is what stops it inventing quotes, and it is independent of rendering them.
-  const { parseAgentEvidence, parseTaskRequest } = await import("../bridge/src/schema.js");
+  const { parseAgentEvidence, parseTaskRequest } = await import("../src/ai/schema.js");
   const request = parseTaskRequest({
     requestId: "t", taskType: "analyze_job", provider: "openai-api", privacyMode: "provider_cloud",
     credential: { type: "session_api_key", apiKey: "session-key-1234" },

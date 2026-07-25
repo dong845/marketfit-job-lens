@@ -1,10 +1,11 @@
-import { AGENT_SYSTEM_POLICY, buildAnalyzePrompt, wireSchemaJson } from "../../bridge/src/prompts.js";
-import { parseAgentEvidence, parseJsonOutput, parseTaskRequest } from "../../bridge/src/schema.js";
-import { extractAnthropicJsonPayload, extractOpenAiJsonPayload } from "../../bridge/src/providerPayload.js";
-import { modelConfig } from "../../bridge/src/models.js";
+import { AGENT_SYSTEM_POLICY, buildAnalyzePrompt, wireSchemaJson } from "./prompts.js";
+import { parseAgentEvidence, parseJsonOutput, parseTaskRequest } from "./schema.js";
+import { extractAnthropicJsonPayload, extractOpenAiJsonPayload } from "./providerPayload.js";
+import { modelConfig } from "./models.js";
 
 const OPENAI_URL = "https://api.openai.com/v1/responses";
 const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
+const DEEPSEEK_URL = "https://api.deepseek.com/chat/completions";
 
 /**
  * Reasoning models can spend well over a minute thinking before emitting JSON,
@@ -15,7 +16,8 @@ const REQUEST_TIMEOUT_MS = 150000;
 
 export const DIRECT_PROVIDER_ORIGINS = Object.freeze({
   "openai-api": "https://api.openai.com/*",
-  "anthropic-api": "https://api.anthropic.com/*"
+  "anthropic-api": "https://api.anthropic.com/*",
+  "deepseek-api": "https://api.deepseek.com/*"
 });
 
 export class DirectApiError extends Error {
@@ -46,12 +48,9 @@ export function createDirectApiClient({ fetchImpl = globalThis.fetch, permission
       if (!await hasProviderAccess(request.provider, permissionsApi)) {
         throw new DirectApiError("MarketFit cannot reach this provider yet. Select the provider again to grant access.");
       }
-      if (request.provider !== "openai-api" && request.provider !== "anthropic-api") {
-        throw new DirectApiError("Direct API access is available only for API-key providers.");
-      }
-      const result = request.provider === "openai-api"
-        ? await runOpenAi(request, fetchImpl)
-        : await runAnthropic(request, fetchImpl);
+      const run = { "openai-api": runOpenAi, "anthropic-api": runAnthropic, "deepseek-api": runDeepSeek }[request.provider];
+      if (!run) throw new DirectApiError("This provider is not supported.");
+      const result = await run(request, fetchImpl);
       return {
         requestId: request.requestId,
         status: "completed",
@@ -122,6 +121,30 @@ async function runAnthropic(request, fetchImpl) {
     withoutStructuredOutput: ({ output_config: _dropped, ...body }) => body
   });
   return parseAgentEvidence(parseJsonOutput(extractAnthropicJsonPayload(payload)), request);
+}
+
+/**
+ * DeepSeek exposes an OpenAI-compatible chat-completions endpoint. It supports
+ * response_format json_object — valid JSON, but no schema — so the shape is
+ * carried by the prompt and enforced afterwards by parseAgentEvidence, which
+ * validates every reply anyway regardless of what the provider promised.
+ */
+async function runDeepSeek(request, fetchImpl) {
+  const model = modelConfig("deepseek-api", request.options.model);
+  const payload = await postJson(fetchImpl, DEEPSEEK_URL, {
+    headers: { "content-type": "application/json", authorization: `Bearer ${request.credential.apiKey}` },
+    body: {
+      model: model.id,
+      max_tokens: model.maxOutputTokens,
+      messages: [
+        { role: "system", content: AGENT_SYSTEM_POLICY },
+        { role: "user", content: buildAnalyzePrompt(request) }
+      ],
+      ...(model.jsonObjectMode ? { response_format: { type: "json_object" } } : {})
+    },
+    withoutStructuredOutput: ({ response_format: _dropped, ...body }) => body
+  });
+  return parseAgentEvidence(parseJsonOutput(extractOpenAiJsonPayload(payload)), request);
 }
 
 /**

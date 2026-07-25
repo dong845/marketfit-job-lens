@@ -4,7 +4,6 @@
   "version": "0.7.0",
   "description": "Analyse the job page you are on against your CV, with every strength, gap, and next step quoted from the source.",
   "permissions": ["activeTab", "scripting", "storage", "sidePanel", "tabs"],
-  "host_permissions": ["http://127.0.0.1/*"],
   "optional_host_permissions": ["http://*/*", "https://*/*"],
   "background": {
     "service_worker": "src/background.js",

@@ -11,19 +11,17 @@ local scoring path.
 | `src/extraction` | Self-contained page extractor, JSON-LD / semantic / text fallbacks, and the quality gate that decides whether text is a usable job description |
 | `src/profile` | Locally bundled PDF.js extraction with size, page, and text limits |
 | `src/ai` | Direct provider calls from the panel, and the permission handling they require |
-| `src/bridge` | Client for the loopback bridge used by the CLI providers |
 | `src/ui` | English/Chinese strings and the pure analysis view |
 | `src/privacy` | Redaction preview for the optional payload |
-| `bridge/src` | Bridge server, provider adapters, model registry, prompt construction, and the evidence schema both callers validate against |
+| `src/ai` | Provider calls, model registry, prompt construction, and the evidence schema every reply is validated against |
 
-`bridge/src/models.js` is the single registry of selectable models and their
-output budgets, read by both the in-panel client and the bridge, so the two paths
-cannot drift.
+`src/ai/models.js` is the single registry of selectable providers, models, and
+their output budgets, read by the panel and the API client alike.
 
 ## Guarantees worth knowing
 
-- **Nothing sensitive is persisted.** Only the interface language and the bridge
-  pairing (port plus token) reach `chrome.storage`. CV text, the captured job, and
+- **Nothing sensitive is persisted.** Only the interface language and past-run
+  timings reach `chrome.storage`. CV text, the captured job, and
   API keys live in the open panel and disappear with it. Asserted in
   `tests/privacy.test.mjs`.
 - **The model cannot invent quotes.** It receives addressable `CV-nnn` / `JD-nnn`
@@ -68,6 +66,5 @@ than test failures:
 1. Run one real analysis against each provider to confirm the structured-output
    paths, then remove the fallback if it proves unnecessary.
 2. Validate extraction against anonymised real postings and tighten site adapters.
-3. Replace the development loopback Bridge with Native Messaging before broad
-   public distribution, then complete privacy/legal review.
+3. Complete a privacy and legal review before public distribution.
 4. Run a small consented beta before Chrome Web Store publication.

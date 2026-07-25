@@ -20,7 +20,7 @@ const collect = (dir) => readdirSync(dir, { withFileTypes: true })
   .flatMap((e) => e.isDirectory() ? collect(join(dir, e.name)) : [join(dir, e.name)]);
 
 const rel = (p) => relative(root, p);
-const jsFiles = [...collect(join(root, "src")), ...collect(join(root, "bridge/src"))].filter((f) => f.endsWith(".js"));
+const jsFiles = collect(join(root, "src")).filter((f) => f.endsWith(".js"));
 const allSources = [...jsFiles, ...collect(join(root, "scripts")).filter((f) => f.endsWith(".mjs"))];
 const manifest = JSON.parse(readFileSync(join(root, "manifest.json"), "utf8"));
 
@@ -31,6 +31,7 @@ for (const p of [manifest.background.service_worker, manifest.side_panel.default
   existsSync(join(root, p)) ? ok.push(`manifest file ${p}`) : fail.push(`manifest references missing file: ${p}`);
 }
 if (manifest.version !== JSON.parse(readFileSync(join(root, "package.json"), "utf8")).version) fail.push("manifest/package version mismatch");
+if ("host_permissions" in manifest) fail.push("no host permission should be requested up front");
 if (manifest.description.length > 132) fail.push(`description too long for Web Store: ${manifest.description.length}`);
 
 // ---- 2. every relative import resolves
@@ -88,17 +89,16 @@ for (const f of consumers) {
 }
 // keys reached through lookup tables
 for (const m of readFileSync(join(root, "src/ui/analysisView.js"), "utf8").matchAll(/"(match|level|priority|severity|verdict)[A-Za-z_]*"/g)) usedKeys.add(m[0].slice(1, -1));
-for (const m of readFileSync(join(root, "bridge/src/models.js"), "utf8").matchAll(/labelKey: "([^"]+)"/g)) usedKeys.add(m[1]);
+for (const m of readFileSync(join(root, "src/ai/models.js"), "utf8").matchAll(/labelKey: "([^"]+)"/g)) usedKeys.add(m[1]);
 const orphans = [...en].filter((k) => k !== "en" && !usedKeys.has(k));
 if (orphans.length) warn.push(`i18n keys with no visible consumer: ${orphans.join(", ")}`);
 ok.push(`i18n: ${en.size} keys, en/zh in sync`);
 
 // ---- 5. no secrets, debug output, or unfinished markers in shipped code
-const extensionFiles = jsFiles.filter((f) => f.includes("/src/") && !f.includes("/bridge/src/"));
+const extensionFiles = jsFiles;
 for (const file of jsFiles) {
   const src = readFileSync(file, "utf8");
   if (/sk-[a-zA-Z0-9]{20,}|api[_-]?key\s*[:=]\s*["'][^"']{20,}/i.test(src)) fail.push(`${rel(file)}: possible hardcoded secret`);
-  // The bridge is a CLI: its stdout is the interface that hands over the pairing code.
   if (extensionFiles.includes(file) && /console\.(log|debug|info)\(/.test(src)) warn.push(`${rel(file)}: console output in extension code`);
   if (/\bTODO\b|\bFIXME\b|\bXXX\b/.test(src)) warn.push(`${rel(file)}: unfinished marker`);
   if (/\beval\(|new Function\(/.test(src)) fail.push(`${rel(file)}: dynamic code execution`);
@@ -118,17 +118,15 @@ for (const file of jsFiles) {
 }
 ok.push("all innerHTML writes escape their inputs");
 
-// ---- 7. network endpoints are only the two provider APIs plus loopback
+// ---- 7. network endpoints are only the three provider APIs
 const hosts = new Set();
 for (const file of jsFiles) {
   const src = readFileSync(file, "utf8");
   for (const m of src.matchAll(/https?:\/\/[a-zA-Z0-9.\-:{}$]+/g)) {
-    // Not a destination: a dummy base so relative request paths can be parsed.
-    if (m[0] === "http://bridge.local") continue;
     hosts.add(m[0]);
   }
 }
-const allowed = /^(https:\/\/api\.(openai|anthropic)\.com|http:\/\/127\.0\.0\.1|https?:\/\/\$\{)/;
+const allowed = /^https:\/\/api\.(openai|anthropic|deepseek)\.com/;
 for (const h of hosts) if (!allowed.test(h)) fail.push(`unexpected network host in src/: ${h}`);
 ok.push(`network hosts limited to: ${[...hosts].join(", ")}`);
 

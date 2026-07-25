@@ -14,12 +14,12 @@ build if one is reintroduced.
    semantic selectors, then page text, and scores the result.
    `validateCapturedJob` decides whether the text is a usable job description at
    all; nothing is sent to a provider until it is.
-2. **Evidence blocks** — `bridge/src/evidenceBlocks.js` splits the CV and job text
+2. **Evidence blocks** — `src/ai/evidenceBlocks.js` splits the CV and job text
    into addressable `CV-nnn` / `JD-nnn` chunks. The model receives these blocks
    and may cite only their IDs, so it cannot invent a quote.
-3. **Request** — `bridge/src/prompts.js` builds the prompt; the untrusted CV and
+3. **Request** — `src/ai/prompts.js` builds the prompt; the untrusted CV and
    job text are fenced and labelled as data, never instructions.
-4. **Validation** — `bridge/src/schema.js` re-validates the reply: enum states,
+4. **Validation** — `src/ai/schema.js` re-validates the reply: enum states,
    list sizes, string lengths, and every evidence ref resolved back to a real
    block. An unresolvable ref is dropped rather than displayed.
 5. **Render** — `src/ui/analysisView.js` turns validated evidence into markup:
@@ -34,11 +34,10 @@ conclusion and buried the analysis.
 
 ## Schemas
 
-`AGENT_EVIDENCE_SCHEMA` in `bridge/src/schema.js` is the single source of truth
+`AGENT_EVIDENCE_SCHEMA` in `src/ai/schema.js` is the single source of truth
 for the result shape and its bounds. Two derivations exist:
 
-- **Full schema** (`outputSchemaJson`) goes to CLI providers, which accept the
-  constraint keywords.
+- **Full schema** (`outputSchemaJson`) documents the contract in one place.
 - **Wire schema** (`wireSchemaJson`) strips `minLength`, `maxLength`, `pattern`,
   `minItems`, and `maxItems`, which OpenAI strict mode and Anthropic structured
   outputs restrict. Nothing is lost: `parseAgentEvidence` enforces those bounds at

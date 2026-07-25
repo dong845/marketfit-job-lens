@@ -2,9 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { readFileSync } from "node:fs";
 import { createDirectApiClient, DIRECT_PROVIDER_ORIGINS } from "../src/ai/directApiClient.js";
-import { MODELS } from "../bridge/src/models.js";
+import { MODELS } from "../src/ai/models.js";
 
 function apiRequest(provider = "openai-api", model = "gpt-5") {
+  // model may be undefined; modelConfig then picks the provider default.
   return {
     requestId: "direct-api-test-1",
     taskType: "analyze_job",
@@ -198,4 +199,60 @@ test("a truncated Anthropic reply says what to do about it", async () => {
     fetchImpl: async () => ({ ok: true, status: 200, async json() { return { stop_reason: "max_tokens", content: [{ type: "text", text: '{"overview":' }] }; } })
   });
   await assert.rejects(() => client.runTask(apiRequest("anthropic-api", "claude-opus-5")), /ran out of output space/);
+});
+
+test("DeepSeek goes only to its own endpoint, with the key request-only", async () => {
+  const calls = [];
+  const client = createDirectApiClient({
+    permissionsApi: { async contains() { return true; } },
+    fetchImpl: async (url, options) => {
+      calls.push({ url, body: JSON.parse(options.body), headers: options.headers });
+      return { ok: true, status: 200, async json() { return { choices: [{ message: { content: JSON.stringify(validEvidence()) } }] }; } };
+    }
+  });
+  const response = await client.runTask(apiRequest("deepseek-api", "deepseek-chat"));
+
+  assert.ok(response.result, "the panel reads response.result for every provider");
+  assert.equal(response.provider, "deepseek-api");
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].url, "https://api.deepseek.com/chat/completions");
+  assert.equal(calls[0].headers.authorization, "Bearer session-test-api-key-123");
+  assert.equal(calls[0].body.model, "deepseek-chat");
+  // json_object gives valid JSON but no schema; the shape is enforced by the parser.
+  assert.deepEqual(calls[0].body.response_format, { type: "json_object" });
+  assert.equal(JSON.stringify(calls[0].body).includes("session-test-api-key-123"), false);
+});
+
+test("DeepSeek falls back to plain prompting if json_object is refused", async () => {
+  let attempts = 0;
+  const client = createDirectApiClient({
+    permissionsApi: { async contains() { return true; } },
+    fetchImpl: async (url, options) => {
+      attempts += 1;
+      if (attempts === 1) return { ok: false, status: 400, async json() { return { error: { message: "response_format is not supported" } }; } };
+      assert.equal(JSON.parse(options.body).response_format, undefined, "the retry must drop response_format");
+      return { ok: true, status: 200, async json() { return { choices: [{ message: { content: JSON.stringify(validEvidence()) } }] }; } };
+    }
+  });
+  const response = await client.runTask(apiRequest("deepseek-api", "deepseek-reasoner"));
+  assert.equal(attempts, 2);
+  assert.ok(response.result);
+});
+
+test("all three providers answer with the same envelope", async () => {
+  const { API_PROVIDERS } = await import("../src/ai/models.js");
+  const replies = {
+    "openai-api": { output_text: JSON.stringify(validEvidence()) },
+    "anthropic-api": { content: [{ type: "text", text: JSON.stringify(validEvidence()) }] },
+    "deepseek-api": { choices: [{ message: { content: JSON.stringify(validEvidence()) } }] }
+  };
+  for (const provider of API_PROVIDERS) {
+    const client = createDirectApiClient({
+      permissionsApi: { async contains() { return true; } },
+      fetchImpl: async () => ({ ok: true, status: 200, async json() { return replies[provider]; } })
+    });
+    const response = await client.runTask(apiRequest(provider, undefined));
+    assert.deepEqual(Object.keys(response).sort(), ["meta", "provider", "requestId", "result", "status"], `${provider} envelope`);
+    assert.equal(response.result.requirements[0].name, "Python", `${provider} must deliver the analysis`);
+  }
 });

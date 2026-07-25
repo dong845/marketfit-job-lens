@@ -1,22 +1,49 @@
 # Privacy and Data Flow
 
-## Default temporary flow
+## What leaves the machine, and when
 
-1. The user selects a text-based PDF resume. PDF.js reads its text locally in the side panel; the file and extracted text remain in memory only.
-2. The user clicks **Analyze current job with AI** while viewing a job page. `activeTab` and `scripting` read the currently visible active page once, after that click. If Chrome does not carry that temporary grant into the side panel, the UI offers an explicit, per-site optional permission; only after the user accepts Chrome's prompt does it retry the capture.
-3. PDF parsing and page capture run locally in the side panel. The UI deliberately does not expose manual CV/JD text boxes or a separate local rule-analysis action.
-4. PDF-derived CV text, captured JD text, and analysis are not written to `chrome.storage.local`, and the default path has no network request.
+Nothing, until you select a provider and press **Analyze current job with AI**.
 
-## Local storage and clearing
+Up to that point the PDF is parsed locally by a bundled copy of PDF.js, and the
+job page is read by a one-time script injected into the tab you are looking at.
+Both stay in side-panel memory.
 
-The current UI stores only the chosen interface language and, after explicit CLI pairing, the loopback Bridge port/token in Chrome storage. The `tabs` permission lets the extension identify the URL of the active tab so that it can ask Chrome for access to that exact job-site origin; it does not itself read page content. It does not offer saved profiles, retention settings, or data export. **Clear local session** clears the in-memory PDF-derived profile, job, result, legacy profile keys, and Bridge pairing. The interface-language preference remains because it contains no CV/JD data.
+Running an analysis sends the PDF-derived CV text and the captured job text
+directly to the one provider you chose — OpenAI, Anthropic, or DeepSeek — and to
+no one else. There is no automatic fallback to another provider, and no server of
+ours in the path.
 
-## AI analysis
+## What is stored
 
-AI analysis is off unless the user selects a provider and clicks **Analyze current job with AI**. For **Codex CLI** and **Claude Code**, the user must first pair a local Bridge, then the extension sends the complete PDF-derived CV text plus captured job text to `http://127.0.0.1` with the paired Bridge token. For **OpenAI API key** and **Anthropic API key**, Chrome first asks for optional access to the selected provider API domain, then the extension sends the same current-request payload directly to that provider; no local Bridge runs in this path. No automatic provider fallback is allowed. Every accepted AI conclusion displayed in the panel must carry one or more verbatim CV/JD quotes that the shared validation code checks before rendering.
+Only two things reach `chrome.storage`:
 
-The extension saves the loopback port and Bridge token in trusted extension storage only for CLI paths; the Bridge token/pairing code are otherwise memory-only. The normal pairing path binds the extension origin. When Chrome omits that header, the Bridge additionally checks the extension's fixed runtime ID on the pairing request and all later requests; this fallback still requires the one-time code and bearer token, and it rejects web-page origins. A pasted OpenAI or Anthropic API key is placed in direct provider requests and remains only in the open side panel for reruns; it is never written to Chrome storage, files, logs, or task history, and disappears when the panel closes, the provider changes, or the local session is cleared. AI evidence remains in side-panel memory only. The redacted preview is informational, not the actual payload: reliable evidence matching requires the original CV/JD text.
+- the interface language
+- how long past analyses took, used to estimate the next one
 
-Codex and Claude Code are local CLIs, but their model inference may use the provider's cloud services. The UI discloses this before the user starts a review. A public release still needs a fresh Chrome Web Store privacy review and an appropriate disclosure of the selected provider/data transfer.
+The CV text, the captured job, the analysis, and the API key live in the open
+side panel and disappear with it. A generated report is held in
+`chrome.storage.session`, which the browser clears when it closes.
+`tests/privacy.test.mjs` asserts at the source level that nothing writes CV text
+or an API key to storage.
 
-The extension must not use CV/JD/page data for advertising, unrelated profiling, sale, or sharing.
+## Permissions
+
+The extension requests **no host permissions at install time**. Access to a
+provider's API domain is requested when you select that provider, and access to a
+job site is requested per site, only if the one-time page read is blocked.
+
+`activeTab` and `scripting` allow reading the page you are on after you act;
+`storage` holds the two items above; `sidePanel` shows the workspace; `tabs` lets
+the extension see the active tab's URL so it can ask for that exact origin.
+
+## The API key
+
+It is placed in the request to the provider you selected and kept in the open
+panel so repeat analyses do not need retyping. It is never written to storage,
+files, or logs, and it is gone when the panel closes or the session is cleared.
+
+## Limits
+
+The redacted preview is informational, not the exact payload — reliable evidence
+matching needs the original text. Analysis is generated by a model: it is an
+evidence-based job-search aid, not legal, immigration, or employment advice.

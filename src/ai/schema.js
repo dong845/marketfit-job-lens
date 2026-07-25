@@ -1,6 +1,6 @@
 import { resolveEvidenceRef } from "./evidenceBlocks.js";
 
-const PROVIDERS = new Set(["codex", "claude-code", "openai-api", "anthropic-api"]);
+const PROVIDERS = new Set(["openai-api", "anthropic-api", "deepseek-api"]);
 const MATCH_STATES = new Set(["strong", "partial", "gap", "no_evidence"]);
 const REQUIREMENT_LEVELS = new Set(["required", "preferred", "unclear"]);
 const EVIDENCE_SOURCES = new Set(["resume", "job"]);
@@ -477,9 +477,7 @@ function evidenceTextMatches(sourceText, quote) {
 }
 
 function parseCredential(provider, value) {
-  const apiProvider = provider === "openai-api" || provider === "anthropic-api";
-  if (!apiProvider && value !== undefined) throw new BridgeError("CREDENTIAL_NOT_ALLOWED", "Local CLI providers use their own local authentication.");
-  if (!apiProvider) return null;
+  // Every remaining provider is a direct API call, so a key is always required.
   const credential = object(value, "An API key is required for this provider.");
   if (credential.type !== "session_api_key") throw new BridgeError("CREDENTIAL_INVALID", "Only session_api_key credentials are accepted.");
   const apiKey = text(credential.apiKey, "API key", 500);

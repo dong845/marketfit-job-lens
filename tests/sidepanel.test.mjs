@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 import { MESSAGES } from "../src/ui/i18n.js";
@@ -20,13 +20,15 @@ test("side panel uses one AI-first current-tab action", () => {
   assert.equal(script.includes("analyzeJobFit"), false);
 });
 
-test("no provider is preselected, and the free CLI options come first", () => {
+test("no provider is preselected, and every offered provider is a real one", async () => {
+  const { API_PROVIDERS } = await import("../src/ai/models.js");
   assert.match(html, /<option value="" data-i18n="chooseProvider">/);
   assert.match(script, /fields\.agentProvider\.value = ""/);
-  assert.ok(
-    html.indexOf('id="cliProviderGroup"') < html.indexOf('id="apiProviderGroup"'),
-    "CLI providers cost nothing to use, so they must be offered before the API-key ones."
-  );
+
+  // Scope to the provider select; the panel has other dropdowns.
+  const select = html.slice(html.indexOf('id="agentProvider"'), html.indexOf("</select>", html.indexOf('id="agentProvider"')));
+  const offered = [...select.matchAll(/<option value="([^"]+)"/g)].map((m) => m[1]).filter(Boolean);
+  assert.deepEqual(offered.sort(), [...API_PROVIDERS].sort(), "the dropdown must match the registry exactly");
 });
 
 test("API credentials and model choice are hidden until an API provider is selected", () => {
@@ -67,14 +69,26 @@ test("a denied provider grant offers a retry instead of a dead end", () => {
   assert.match(script, /fields\.accessRetryRow\.hidden = false/);
 });
 
-test("the free bridge route shows a runnable command and a default port", () => {
-  assert.match(html, /id="bridgeCommand"/);
-  assert.match(html, /id="copyBridgeCommand"/);
-  // An empty port field meant the bridge picked a random one and the user had to
-  // read it off stdout before pairing could work at all.
-  assert.match(html, /id="bridgePort"[^>]*value="8765"/);
-  assert.match(script, /const BRIDGE_COMMAND = "npm run bridge -- --port 8765"/);
-  assert.match(script, /function markCliAvailability/);
+test("the local bridge is gone from every surface", () => {
+  // The CLI route was removed: it needed a separate server, a pairing dance that
+  // broke on restart, and it was far slower than the API path on a real posting.
+  for (const source of [html, script, readFileSync(join(root, "src/sidepanel/sidepanel.css"), "utf8")]) {
+    assert.equal(/bridge|pairing|codex|claude-code/i.test(source), false, "no bridge remnants may remain");
+  }
+  assert.equal(existsSync(join(root, "src/bridge")), false);
+  assert.equal(existsSync(join(root, "bridge")), false);
+});
+
+test("selecting a provider requests only that provider's domain", async () => {
+  const { DIRECT_PROVIDER_ORIGINS } = await import("../src/ai/directApiClient.js");
+  const { API_PROVIDERS } = await import("../src/ai/models.js");
+  for (const provider of API_PROVIDERS) {
+    assert.ok(DIRECT_PROVIDER_ORIGINS[provider], `${provider} needs a declared origin`);
+    assert.match(DIRECT_PROVIDER_ORIGINS[provider], /^https:\/\/[^/]+\/\*$/);
+  }
+  // Origins are optional and asked for per provider, never granted up front.
+  const manifest = JSON.parse(readFileSync(join(root, "manifest.json"), "utf8"));
+  assert.equal("host_permissions" in manifest, false);
 });
 
 test("every visible string is translatable in both locales", () => {

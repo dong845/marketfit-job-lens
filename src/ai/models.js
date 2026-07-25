@@ -65,16 +65,36 @@ export const MODELS = Object.freeze({
     labelKey: "openAiGpt5Mini",
     maxOutputTokens: 24000,
     structuredOutputs: true
+  },
+  // DeepSeek serves an OpenAI-compatible /chat/completions endpoint. It accepts
+  // response_format json_object (valid JSON, no schema) rather than a strict
+  // json_schema, so the schema is carried by the prompt and enforced by
+  // parseAgentEvidence — which validates every reply regardless of provider.
+  "deepseek-chat": {
+    typicalSeconds: 60,
+    provider: "deepseek-api",
+    labelKey: "deepseekChat",
+    maxOutputTokens: 8000,
+    structuredOutputs: false,
+    jsonObjectMode: true
+  },
+  "deepseek-reasoner": {
+    typicalSeconds: 110,
+    provider: "deepseek-api",
+    labelKey: "deepseekReasoner",
+    maxOutputTokens: 8000,
+    structuredOutputs: false,
+    jsonObjectMode: true
   }
 });
 
-/** CLI routes are addressed by provider name, not a model id. */
-export const CLI_TYPICAL_SECONDS = Object.freeze({ codex: 180, "claude-code": 180 });
-
 export const DEFAULT_MODEL = Object.freeze({
   "openai-api": "gpt-5-mini",
-  "anthropic-api": "claude-sonnet-5"
+  "anthropic-api": "claude-sonnet-5",
+  "deepseek-api": "deepseek-chat"
 });
+
+export const API_PROVIDERS = Object.freeze(["openai-api", "anthropic-api", "deepseek-api"]);
 
 export function modelsForProvider(provider) {
   return Object.entries(MODELS)

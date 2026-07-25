@@ -6,9 +6,9 @@
  */
 import assert from "node:assert/strict";
 import { extractJob, hasUsableJobContent } from "../src/extraction/extractJob.js";
-import { buildAnalyzePrompt, wireSchemaJson } from "../bridge/src/prompts.js";
-import { parseAgentEvidence, parseJsonOutput, parseTaskRequest } from "../bridge/src/schema.js";
-import { modelConfig, modelsForProvider } from "../bridge/src/models.js";
+import { buildAnalyzePrompt, wireSchemaJson } from "../src/ai/prompts.js";
+import { parseAgentEvidence, parseJsonOutput, parseTaskRequest } from "../src/ai/schema.js";
+import { modelConfig, modelsForProvider } from "../src/ai/models.js";
 
 const RESUME = "Experience\nBuilt 4D cine MRI reconstruction in PyTorch and ported the solver to C++, cutting scan time 28%.";
 const JOB_TEXT = [

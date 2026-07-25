@@ -6,14 +6,14 @@ import { fileURLToPath } from "node:url";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 const sourceFiles = collect(join(root, "src")).filter((file) => file.endsWith(".js"));
-const bridgeFiles = collect(join(root, "bridge/src")).filter((file) => file.endsWith(".js"));
-for (const file of [...sourceFiles, ...bridgeFiles]) execFileSync(process.execPath, ["--check", file], { stdio: "pipe" });
+for (const file of sourceFiles) execFileSync(process.execPath, ["--check", file], { stdio: "pipe" });
 
 const manifest = JSON.parse(readFileSync(join(root, "manifest.json"), "utf8"));
 // "permissions" is not a recognized Chrome permission — chrome.permissions needs no
 // declaration, and declaring it makes Chrome show an "unknown permission" install warning.
 assert.deepEqual([...manifest.permissions].sort(), ["activeTab", "scripting", "sidePanel", "storage", "tabs"].sort());
-assert.deepEqual(manifest.host_permissions, ["http://127.0.0.1/*"], "Only the loopback Local AI Bridge is allowed.");
+// No local bridge any more, so no loopback host permission is needed.
+assert.equal("host_permissions" in manifest, false, "The extension must not request host permissions up front.");
 assert.deepEqual(manifest.optional_host_permissions, ["http://*/*", "https://*/*"], "Website access must remain optional and requested per site.");
 
 // The extension must not grow a second, non-AI scoring path: a keyword matcher
@@ -25,22 +25,22 @@ for (const file of sourceFiles) {
 }
 // The schema invites a length the parser must accept: text() throws above its own
 // ceiling, so a lower parser limit silently rejects a reply we asked for.
-const schemaSource = readFileSync(join(root, "bridge/src/schema.js"), "utf8");
+const schemaSource = readFileSync(join(root, "src/ai/schema.js"), "utf8");
 const bareCeilings = [...schemaSource.matchAll(/maxLength: (\d+)/g)].map((match) => match[1]);
 assert.deepEqual(bareCeilings, [], `Field ceilings must come from FIELD_LIMITS, not literals: ${bareCeilings.join(", ")}`);
 const bareParserCeilings = [...schemaSource.matchAll(/text\((?:item|overview|requirement|uncertainty|value)\.\w+,\s*[^,]+,\s*(\d{3,})\)/g)].map((match) => match[1]);
 assert.deepEqual(bareParserCeilings, [], `Parser ceilings must come from FIELD_LIMITS: ${bareParserCeilings.join(", ")}`);
 
-const bridgeClientSource = readFileSync(join(root, "src/bridge/bridgeClient.js"), "utf8");
 const directApiSource = readFileSync(join(root, "src/ai/directApiClient.js"), "utf8");
-assert.match(bridgeClientSource, /http:\/\/127\.0\.0\.1/, "CLI requests must target loopback only.");
 assert.match(directApiSource, /https:\/\/api\.openai\.com\/v1\/responses/, "OpenAI direct requests must target only the official API endpoint.");
 assert.match(directApiSource, /https:\/\/api\.anthropic\.com\/v1\/messages/, "Anthropic direct requests must target only the official API endpoint.");
 const directApiHosts = [...directApiSource.matchAll(/https:\/\/[^"`\s]+/g)].map((match) => match[0]);
-assert.deepEqual(directApiHosts.sort(), ["https://api.anthropic.com/*", "https://api.anthropic.com/v1/messages", "https://api.openai.com/*", "https://api.openai.com/v1/responses"], "Direct API code may contain only the two selected provider domains.");
-const allBridge = bridgeFiles.map((file) => readFileSync(file, "utf8")).join("\n");
-assert.equal(/shell\s*:\s*true/.test(allBridge), false, "Bridge subprocesses must never use a shell.");
-assert.match(readFileSync(join(root, "bridge/src/server.js"), "utf8"), /host\s*=\s*"127\.0\.0\.1"/, "Bridge must bind loopback by default.");
+assert.match(directApiSource, /https:\/\/api\.deepseek\.com\/chat\/completions/, "DeepSeek requests must target only the official API endpoint.");
+assert.deepEqual(directApiHosts.sort(), [
+  "https://api.anthropic.com/*", "https://api.anthropic.com/v1/messages",
+  "https://api.deepseek.com/*", "https://api.deepseek.com/chat/completions",
+  "https://api.openai.com/*", "https://api.openai.com/v1/responses"
+], "Direct API code may contain only the three selected provider domains.");
 assert.equal(existsSync(join(root, "vendor/pdfjs/pdf.mjs")), true, "The PDF parser must be bundled locally.");
 assert.equal(existsSync(join(root, "vendor/pdfjs/pdf.worker.mjs")), true, "The PDF worker must be bundled locally.");
 // Chrome ignores SVG icons, so every declared icon must exist as a rendered PNG.
@@ -49,7 +49,7 @@ for (const path of Object.values(manifest.icons)) {
   assert.match(path, /\.png$/, `Chrome cannot use a non-PNG icon: ${path}`);
 }
 
-console.log(`Static checks passed for ${sourceFiles.length} extension modules and ${bridgeFiles.length} bridge modules`);
+console.log(`Static checks passed for ${sourceFiles.length} extension modules`);
 
 function collect(directory) {
   return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => entry.isDirectory() ? collect(join(directory, entry.name)) : [join(directory, entry.name)]);

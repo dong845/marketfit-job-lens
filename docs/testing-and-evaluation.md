@@ -1,14 +1,25 @@
 # Testing and Evaluation
 
-Run:
+`npm test` runs the unit suite plus an end-to-end smoke test over the shipping
+path: captured snapshot -> normalized job -> validated provider request -> parsed
+evidence.
 
-```bash
-npm test
-npm run lint
-```
+`npm run lint` (`scripts/static-check.mjs`) parses every extension module and
+asserts the invariants that are cheaper to enforce than to re-discover: the exact
+permission set, no host permissions at install time, a locally bundled PDF.js
+parser and worker, only the three provider domains in network-capable code, no
+reintroduced local scoring path, and field ceilings that come from `FIELD_LIMITS`
+rather than literals in either the schema or the parser.
 
-The Node test suite covers input quality, target-role isolation, negation, weak evidence, sponsorship conflict, clearance blockers, graduate-route representation, Dutch required/preferred distinctions, length-only CV inflation, low extraction confidence, compliance wording, JSON-LD, Greenhouse, Lever, Workday, generic SPA, noisy/empty pages, local PDF validation/text extraction, legacy-storage cleanup, and redaction preview.
+`npm run audit` (`scripts/audit.mjs`) covers what spans files and no unit test
+sees: a manifest pointing at a deleted asset, an element id renamed in HTML but
+not in JS, a string added in one language only, an unescaped `innerHTML` write, an
+unexpected network host, an orphaned module.
 
-`scripts/static-check.mjs` parses every extension and Bridge source module, requires a locally bundled PDF.js parser/worker, permits only loopback `http://127.0.0.1/*` host access, rejects direct remote-provider URLs in network-capable extension code, rejects shell-enabled subprocesses, and rejects the legacy total-score entry point. The Bridge test suite uses fake providers for API payloads and a real loopback listener when the environment allows it.
+Two checks exist because their absence previously produced silent failures:
 
-Before any public release, build a human-labelled, anonymised evaluation set of 100-300 real JDs. Report blocker recall, false-blocker rate, evidence-citation accuracy, extraction-field accuracy, and recommendation agreement. This repository does not claim those metrics yet; synthetic regression coverage is not a substitute for real evaluation.
+- `tests/sidepanelBoot.test.mjs` imports the panel against a DOM built from the
+  real markup, so a stale element id fails the suite instead of blanking the panel.
+- `tests/reportOpen.test.mjs` fires the registered click handlers, because a test
+  that only imports the module proved the button existed and never that pressing
+  it did anything.

@@ -2,8 +2,7 @@ import { createManualJob, extractJob, hasUsableJobContent, validateCapturedJob }
 import { captureActiveTab, isSameJobPage, requestOptionalSiteAccess, siteOriginForPermission } from "../extraction/tabCapture.js";
 import { createDirectApiClient } from "../ai/directApiClient.js";
 import { buildRemoteTransmissionPreview } from "../privacy/redaction.js";
-import { createBridgeClient, isApiProvider, isCliProvider } from "../bridge/bridgeClient.js";
-import { CLI_TYPICAL_SECONDS, MODELS, modelsForProvider } from "../../bridge/src/models.js";
+import { API_PROVIDERS, MODELS, modelsForProvider } from "../ai/models.js";
 import { configurePdfWorker, extractResumePdf } from "../profile/pdfResume.js";
 import { applyTranslations, format, t } from "../ui/i18n.js";
 import { escapeHtml, renderAnalysisHtml } from "../ui/analysisView.js";
@@ -11,22 +10,17 @@ import { LATEST_KEY, buildReportPayload, expiredReportKeys, reportKey, reportUrl
 
 const LOCALE_KEY = "marketfit.locale.v1";
 const PERSONAL_STORAGE_KEYS = ["marketfit.state.v2", "marketfit.profile.v1", "marketfit.lastAnalysis.v1"];
-const BRIDGE_COMMAND = "npm run bridge -- --port 8765";
 const TIMING_KEY = "marketfit.timing.v1";
-const CLI_PROVIDER_LABELS = { codex: "codex", "claude-code": "claude" };
 
 let locale = "en";
 const fields = {
   interfaceLanguage: byId("interfaceLanguage"), cvPdf: byId("cvPdf"), cvFileStatus: byId("cvFileStatus"), market: byId("market"), workAuthorization: byId("workAuthorization"),
   status: byId("status"), result: byId("result"), currentJobSummary: byId("currentJobSummary"), currentJobMeta: byId("currentJobMeta"), currentJobQuality: byId("currentJobQuality"), temporaryNotice: byId("temporaryNotice"),
-  redactionPreview: byId("redactionPreview"), bridgePort: byId("bridgePort"), pairingCode: byId("pairingCode"), bridgeState: byId("bridgeState"),
-  agentProvider: byId("agentProvider"), apiKey: byId("apiKey"), cliBridgeMode: byId("cliBridgeMode"), apiProviderMode: byId("apiProviderMode"),
+  redactionPreview: byId("redactionPreview"), agentProvider: byId("agentProvider"), apiKey: byId("apiKey"), apiProviderMode: byId("apiProviderMode"),
   apiModel: byId("apiModel"), accessRetryRow: byId("accessRetryRow"), jobEditorPanel: byId("jobEditorPanel"), jobTextEditor: byId("jobTextEditor"),
-  jobTitleInput: byId("jobTitleInput"), jobCompanyInput: byId("jobCompanyInput"), jobLocationInput: byId("jobLocationInput"),
-  bridgeCommand: byId("bridgeCommand"), copyBridgeCommand: byId("copyBridgeCommand"), appVersion: byId("appVersion"),
+  jobTitleInput: byId("jobTitleInput"), jobCompanyInput: byId("jobCompanyInput"), jobLocationInput: byId("jobLocationInput"), appVersion: byId("appVersion"),
   reportRow: byId("reportRow"), openReport: byId("openReport"), runProgress: byId("runProgress")
 };
-const bridgeClient = createBridgeClient();
 const directApiClient = createDirectApiClient();
 let resume = null;
 let currentJob = null;
@@ -37,9 +31,6 @@ let lastRunContext = null;
 
 byId("clearSession").addEventListener("click", clearSession);
 byId("previewRedaction").addEventListener("click", toggleRedactionPreview);
-byId("pairBridge").addEventListener("click", pairBridge);
-byId("refreshBridge").addEventListener("click", () => refreshBridgeState(true));
-byId("disconnectBridge").addEventListener("click", disconnectBridge);
 byId("agentProvider").addEventListener("change", handleProviderChange);
 byId("runAgentReview").addEventListener("click", runAgentReview);
 byId("refreshJobCapture").addEventListener("click", () => captureCurrentJob({ announceFailure: true }));
@@ -48,11 +39,9 @@ byId("cancelJobEdit").addEventListener("click", closeJobEditor);
 byId("saveJobEdit").addEventListener("click", saveEditedJob);
 byId("retryProviderAccess").addEventListener("click", grantProviderAccess);
 byId("openReport").addEventListener("click", openFullReport);
-fields.copyBridgeCommand.addEventListener("click", copyBridgeCommand);
 fields.cvPdf.addEventListener("change", loadResumePdf);
 fields.interfaceLanguage.addEventListener("change", changeLanguage);
 
-fields.bridgeCommand.textContent = BRIDGE_COMMAND;
 // Chrome keeps running an unpacked extension's previous code until it is reloaded,
 // so the loaded build has to be visible to tell "not fixed" from "not reloaded".
 fields.appVersion.textContent = `v${chrome.runtime.getManifest?.()?.version || "?"}`;
@@ -61,8 +50,7 @@ initialize();
 /**
  * Every step here is individually recoverable. A failure in one (a Chrome profile
  * that rejects storage access levels, a PDF runtime that will not load) used to
- * reject the whole function, leaving the panel untranslated with no bridge state
- * and no obvious cause.
+ * reject the whole function, leaving the panel untranslated with no obvious cause.
  */
 async function initialize() {
   try {
@@ -75,10 +63,7 @@ async function initialize() {
   fields.agentProvider.value = "";
   applyLocale();
   updateAgentProviderUi();
-
-  try { await bridgeClient.prepare(); } catch { setStatus("Bridge token storage could not be restricted in this Chrome profile."); }
   try { await configurePdfWorker(chrome.runtime.getURL("vendor/pdfjs/pdf.worker.mjs")); } catch { setStatus(t(locale, "pdfFailed")); }
-  await refreshBridgeState(false);
 }
 
 async function changeLanguage() {
@@ -86,7 +71,6 @@ async function changeLanguage() {
   try { await chrome.storage.local.set({ [LOCALE_KEY]: locale }); } catch { /* Language still applies to this session. */ }
   applyLocale();
   updateAgentProviderUi();
-  await refreshBridgeState(false);
 }
 
 function applyLocale() {
@@ -200,12 +184,10 @@ async function clearSession() {
   fields.redactionPreview.hidden = true;
   fields.redactionPreview.textContent = "";
   fields.reportRow.hidden = true;
-  await bridgeClient.disconnect();
   await chrome.storage.local.remove(PERSONAL_STORAGE_KEYS);
   renderResumeStatus();
   renderCurrentJobSummary();
   renderEmpty();
-  setBridgeState(t(locale, "bridgeUnpaired"));
   setStatus(t(locale, "clearSession"));
 }
 
@@ -233,7 +215,7 @@ async function toggleRedactionPreview() {
     profile: getProfile(),
     job,
     provider: provider || t(locale, "chooseProvider"),
-    transport: isApiProvider(provider) ? "direct_provider_api" : isCliProvider(provider) ? "local_cli_bridge" : "provider_not_selected"
+    transport: API_PROVIDERS.includes(provider) ? "direct_provider_api" : "provider_not_selected"
   });
   fields.redactionPreview.textContent = JSON.stringify(preview, null, 2);
   fields.redactionPreview.hidden = false;
@@ -314,94 +296,11 @@ function saveEditedJob() {
   renderActionMessage(t(locale, "jobReadyForAi"));
 }
 
-// ------------------------------------------------------------------- bridge
-
-async function copyBridgeCommand() {
-  try {
-    await navigator.clipboard.writeText(BRIDGE_COMMAND);
-    fields.copyBridgeCommand.textContent = t(locale, "copied");
-    setTimeout(() => { fields.copyBridgeCommand.textContent = t(locale, "copyCommand"); }, 1500);
-  } catch {
-    // Clipboard access can be refused; the command stays selectable on screen.
-    setStatus(BRIDGE_COMMAND);
-  }
-}
-
-async function pairBridge() {
-  try {
-    const state = await bridgeClient.pair({ port: fields.bridgePort.value, pairingCode: fields.pairingCode.value });
-    fields.pairingCode.value = "";
-    fields.bridgePort.value = String(state.port);
-    await refreshBridgeState(false);
-    setStatus(t(locale, "bridgePaired"));
-  } catch (error) {
-    setBridgeState(error.message);
-    setStatus(t(locale, "pairingFailed"));
-  }
-}
-
-async function refreshBridgeState(announce) {
-  const state = await bridgeClient.load();
-  if (!state) {
-    setBridgeState(t(locale, "bridgeUnpaired"));
-    markCliAvailability(null);
-    return;
-  }
-  fields.bridgePort.value = String(state.port);
-  try {
-    const health = await bridgeClient.health();
-    const providers = health?.providers || {};
-    const available = Object.entries(providers).filter(([, provider]) => provider.available).map(([name]) => name).join(", ") || t(locale, "unknown");
-    // A bridge started before the last code change keeps running the old code, so
-    // fixes appear not to work and old errors keep reproducing.
-    const running = chrome.runtime.getManifest?.()?.version;
-    setBridgeState(health?.version && running && health.version !== running
-      ? format(locale, "bridgeOutdated", { running: health.version, expected: running })
-      : format(locale, "paired", { port: state.port, providers: available }));
-    markCliAvailability(providers);
-    if (announce) setStatus(t(locale, "refreshStatus"));
-  } catch (error) {
-    setBridgeState(format(locale, "bridgeUnavailable", { port: state.port }));
-    markCliAvailability(null);
-    if (announce) setStatus(error.message);
-  }
-}
-
-/**
- * The bridge reports which CLIs it can actually launch. Surfacing that on the
- * dropdown avoids letting someone pick Codex on a machine without it and only
- * discovering that after a failed analysis run.
- */
-function markCliAvailability(providers) {
-  for (const [value, labelKey] of Object.entries(CLI_PROVIDER_LABELS)) {
-    const option = fields.agentProvider.querySelector(`option[value="${value}"]`);
-    if (!option) continue;
-    const base = t(locale, value === "codex" ? "codex" : "claudeCode");
-    const known = providers && Object.hasOwn(providers, value);
-    const missing = known && !providers[value].available;
-    option.disabled = Boolean(missing);
-    option.textContent = missing ? `${base} — ${t(locale, "providerNotInstalled")} (${labelKey})` : base;
-  }
-}
-
-async function disconnectBridge() {
-  await bridgeClient.disconnect();
-  fields.pairingCode.value = "";
-  setBridgeState(t(locale, "bridgeDisconnected"));
-  setStatus(t(locale, "bridgeDisconnected"));
-  markCliAvailability(null);
-}
-
-function setBridgeState(message) {
-  fields.bridgeState.textContent = message;
-}
-
 // ----------------------------------------------------------------- providers
 
 function updateAgentProviderUi() {
   const provider = fields.agentProvider.value;
-  const apiProvider = isApiProvider(provider);
-  fields.cliBridgeMode.hidden = !isCliProvider(provider);
+  const apiProvider = API_PROVIDERS.includes(provider);
   fields.apiProviderMode.hidden = !apiProvider;
   fields.accessRetryRow.hidden = true;
   if (!apiProvider) {
@@ -418,7 +317,7 @@ function updateAgentProviderUi() {
  */
 async function handleProviderChange() {
   const provider = fields.agentProvider.value;
-  if (!isApiProvider(provider)) return updateAgentProviderUi();
+  if (!API_PROVIDERS.includes(provider)) return updateAgentProviderUi();
   try {
     await directApiClient.requestAccess(provider);
     updateAgentProviderUi();
@@ -431,7 +330,7 @@ async function handleProviderChange() {
 
 async function grantProviderAccess() {
   const provider = fields.agentProvider.value;
-  if (!isApiProvider(provider)) return;
+  if (!API_PROVIDERS.includes(provider)) return;
   try {
     await directApiClient.requestAccess(provider);
     fields.accessRetryRow.hidden = true;
@@ -461,11 +360,11 @@ async function runAgentReview() {
     const provider = fields.agentProvider.value;
     if (!provider) return setStatus(t(locale, "chooseProviderFirst"));
     const apiKey = fields.apiKey.value;
-    if (isApiProvider(provider) && !apiKey.trim()) return setStatus(t(locale, "apiKeyNeeded"));
+    if (API_PROVIDERS.includes(provider) && !apiKey.trim()) return setStatus(t(locale, "apiKeyNeeded"));
 
     // Must be the first await: job capture below spends the click's user gesture,
     // and chrome.permissions.request() will not prompt once it is gone.
-    if (isApiProvider(provider)) {
+    if (API_PROVIDERS.includes(provider)) {
       try {
         await directApiClient.requestAccess(provider);
         fields.accessRetryRow.hidden = true;
@@ -495,17 +394,17 @@ async function runAgentReview() {
     setStatus("");
     const task = {
       requestId: globalThis.crypto?.randomUUID?.() || `marketfit-${Date.now()}`, taskType: "analyze_job", provider, privacyMode: "provider_cloud",
-      ...(isApiProvider(provider) ? { credential: { type: "session_api_key", apiKey } } : {}),
-      options: { language: locale, ...(isApiProvider(provider) ? { model: fields.apiModel.value } : {}) },
+      credential: { type: "session_api_key", apiKey },
+      options: { language: locale, model: fields.apiModel.value },
       input: { resumeText: resume.text, job: { title: job.title, company: job.company, location: job.location, description: job.sourceText, url: job.url || "" }, candidate: { targetRole: "", workAuthorization: fields.workAuthorization.value, languages: [] } }
     };
-    const model = isApiProvider(provider) ? fields.apiModel.value : provider;
+    const model = fields.apiModel.value;
     renderActionMessage(t(locale, "requestingAi"));
     const startedAt = Date.now();
     const inputChars = (resume.text?.length || 0) + (job.sourceText?.length || 0);
     const stopTimer = startElapsedTimer(model, await estimateSeconds(model, inputChars));
     try {
-      const response = isApiProvider(provider) ? await directApiClient.runTask(task) : await bridgeClient.runTask(task);
+      const response = await directApiClient.runTask(task);
       // Both routes answer with the same envelope. A missing result means the
       // provider was paid and produced nothing usable, which must not be mistaken
       // for a completed analysis.
@@ -565,7 +464,7 @@ function startElapsedTimer(model, estimate) {
  * it falls back to the registry's rough figure.
  */
 async function estimateSeconds(model, chars) {
-  const fallback = MODELS[model]?.typicalSeconds || CLI_TYPICAL_SECONDS[model] || 60;
+  const fallback = MODELS[model]?.typicalSeconds || 60;
   try {
     const stored = await chrome.storage.local.get(TIMING_KEY);
     const measured = stored[TIMING_KEY]?.[model];

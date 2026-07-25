@@ -27,7 +27,8 @@ test("manifest requests website access only as an optional permission", async ()
   // chrome.permissions needs no manifest declaration. Declaring "permissions" makes Chrome
   // drop it and warn "Permission 'permissions' is unknown or URL pattern is malformed".
   assert.equal(manifest.permissions.includes("permissions"), false);
-  assert.deepEqual(manifest.host_permissions, ["http://127.0.0.1/*"]);
+  // The local bridge is gone, so nothing needs a host permission at install time.
+  assert.equal("host_permissions" in manifest, false);
   assert.deepEqual(manifest.optional_host_permissions, ["http://*/*", "https://*/*"]);
 });
 

@@ -34,16 +34,12 @@ test("nothing writes CV text or an API key to extension storage", () => {
   }
 });
 
-test("the only persisted keys are the interface language and the bridge pairing", () => {
+test("the only persisted keys are the interface language and timing estimates", () => {
   const sidepanel = readFileSync(join(root, "src/sidepanel/sidepanel.js"), "utf8");
-  const bridge = readFileSync(join(root, "src/bridge/bridgeClient.js"), "utf8");
   assert.match(sidepanel, /const LOCALE_KEY = "marketfit\.locale\.v1"/);
   assert.match(sidepanel, /const TIMING_KEY = "marketfit\.timing\.v1"/);
-  assert.match(bridge, /const BRIDGE_STATE_KEY = "marketfit\.bridge\.v1"/);
-  // The bridge state is a port and a token, never a credential the user typed.
-  const pair = bridge.slice(bridge.indexOf("async pair("), bridge.indexOf("async health("));
-  assert.match(pair, /const state = \{ port: validPort, token: response\.token, pairedAt/);
-  assert.equal(pair.includes("pairingCode:"), false, "the one-time pairing code must not be persisted");
+  // Reports live in session storage and go with the browser session.
+  assert.match(sidepanel, /chrome\.storage\?\.session \|\| chrome\.storage\?\.local/);
 });
 
 test("clearing the session removes the API key and every personal storage key", () => {
@@ -52,7 +48,6 @@ test("clearing the session removes the API key and every personal storage key", 
   assert.match(clear, /fields\.apiKey\.value = ""/);
   assert.match(clear, /resume = null/);
   assert.match(clear, /chrome\.storage\.local\.remove\(PERSONAL_STORAGE_KEYS\)/);
-  assert.match(clear, /bridgeClient\.disconnect\(\)/);
 });
 
 test("optional AI payload preview redacts common PII", () => {

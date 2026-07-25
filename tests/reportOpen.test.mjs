@@ -102,8 +102,6 @@ test("a failure is shown in the result area, not only in the status line", async
 test("storage.local is used when session is unavailable", async () => {
   const { listeners, calls } = harness({ sessionStorage: false });
   await import(`../src/sidepanel/sidepanel.js?case=nosession-${Date.now()}`);
-  // With no analysis the guard fires first, so assert the selection expression
-  // itself rather than a write; the write path is covered by reportPage tests.
   assert.ok(listeners.get("openReport:click"));
   assert.equal(calls.sessionSet.length, 0);
 });
