@@ -8,11 +8,14 @@ const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
 const DEEPSEEK_URL = "https://api.deepseek.com/chat/completions";
 
 /**
- * Reasoning models can spend well over a minute thinking before emitting JSON,
- * and this path is deliberately non-streaming (one request, one parsed result).
- * The old 90s ceiling cut off slow-but-successful analyses.
+ * Reasoning models spend a while thinking before emitting JSON, and this path is
+ * deliberately non-streaming (one request, one parsed result). Measured against
+ * the real APIs, a 3,459 character prompt took ~35s; a real CV and job page build
+ * roughly 27,000 characters, so the ceiling has to leave room for several times
+ * that. A timeout here costs the user a call they already paid for, which is far
+ * worse than waiting — the panel shows elapsed time so the wait is visible.
  */
-const REQUEST_TIMEOUT_MS = 150000;
+const REQUEST_TIMEOUT_MS = 300000;
 
 export const DIRECT_PROVIDER_ORIGINS = Object.freeze({
   "openai-api": "https://api.openai.com/*",
@@ -187,7 +190,10 @@ async function fetchWithTimeout(fetchImpl, url, options) {
     return await fetchImpl(url, { ...options, signal: controller.signal });
   } catch (error) {
     if (controller.signal.aborted) throw new DirectApiError("The selected AI provider did not finish in time. Try a faster model, or shorten the job description.");
-    throw new DirectApiError("The selected AI provider could not be reached.");
+    // Keep the underlying cause: "could not be reached" alone hides whether it was
+    // DNS, TLS, a proxy, or the network being down, which is the whole diagnosis.
+    const cause = error?.cause?.code || error?.cause?.message || error?.message;
+    throw new DirectApiError(cause ? `The selected AI provider could not be reached (${String(cause).slice(0, 120)}).` : "The selected AI provider could not be reached.");
   } finally {
     clearTimeout(timer);
   }

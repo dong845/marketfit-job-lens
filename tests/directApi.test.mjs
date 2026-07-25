@@ -256,3 +256,12 @@ test("all three providers answer with the same envelope", async () => {
     assert.equal(response.result.requirements[0].name, "Python", `${provider} must deliver the analysis`);
   }
 });
+
+test("a transport failure keeps the underlying cause", () => {
+  // "could not be reached" alone hides whether it was DNS, TLS, a proxy, or the
+  // network — which is the entire diagnosis. Verified while debugging a real
+  // UND_ERR_CONNECT_TIMEOUT that the message had swallowed.
+  const source = readFileSync(new URL("../src/ai/directApiClient.js", import.meta.url), "utf8");
+  assert.match(source, /error\?\.cause\?\.code \|\| error\?\.cause\?\.message \|\| error\?\.message/);
+  assert.match(source, /could not be reached \(\$\{String\(cause\)/);
+});
