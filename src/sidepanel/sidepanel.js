@@ -396,7 +396,19 @@ async function runAgentReview() {
       requestId: globalThis.crypto?.randomUUID?.() || `marketfit-${Date.now()}`, taskType: "analyze_job", provider, privacyMode: "provider_cloud",
       credential: { type: "session_api_key", apiKey },
       options: { language: locale, model: fields.apiModel.value },
-      input: { resumeText: resume.text, job: { title: job.title, company: job.company, location: job.location, description: job.sourceText, url: job.url || "" }, candidate: { targetRole: "", workAuthorization: fields.workAuthorization.value, languages: [] } }
+      input: {
+        resumeText: resume.text,
+        // The capture already extracts these; withholding them hid decision facts
+        // like a band far below the candidate's level or a named on-site pattern.
+        job: {
+          title: job.title, company: job.company, location: job.location,
+          employmentType: job.employmentType || "", salary: job.salary || "",
+          description: job.sourceText, url: job.url || ""
+        },
+        // The market selector was collected and never sent — a control that looked
+        // like it personalised the analysis and did nothing.
+        candidate: { targetRole: "", workAuthorization: fields.workAuthorization.value, targetMarket: fields.market.value, languages: [] }
+      }
     };
     const model = fields.apiModel.value;
     renderActionMessage(t(locale, "requestingAi"));

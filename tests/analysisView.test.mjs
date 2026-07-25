@@ -119,14 +119,15 @@ test("each verdict maps to its own tone", () => {
     recommendation: { verdict, headline: "h", rationale: "r" }
   }), "en").match(/result-card verdict tone-(\w+)/)[1];
   assert.equal(tone("strong_fit"), "ok");
-  assert.equal(tone("worth_applying"), "ok");
+  assert.equal(tone("worth_applying"), "go", "it must be distinguishable from strong_fit at a glance");
   assert.equal(tone("stretch"), "warn");
   assert.equal(tone("weak_fit"), "bad");
 });
 
-test("an analysis without a verdict still renders everything else", () => {
+test("a missing verdict is explained, not silently dropped", () => {
+  // The user paid for an analysis; the one thing they came for cannot just vanish.
   const html = renderAnalysisHtml(evidenceFixture({ recommendation: null }), "en");
-  assert.equal(html.includes("result-card verdict"), false);
+  assert.match(html, /returned no overall verdict/);
   assert.match(html, /Requirements/);
 });
 
@@ -165,4 +166,42 @@ test("dropping the display does not drop the grounding that produced it", async 
     requirements: [{ name: "PyTorch", level: "required", match: "strong", evidence: [{ ref: "CV-999" }], explanation: "x" }]
   }, request);
   assert.deepEqual(invented.requirements[0].evidence, [], "an unresolvable citation must be dropped");
+});
+
+test("a hard filter sorts above everything and is labelled", () => {
+  // Missing a knockout ends the application regardless of the rest of the list.
+  const html = renderAnalysisHtml(evidenceFixture({
+    requirements: [
+      { name: "PyTorch", level: "required", screening: "weighted", match: "strong", recency: "current", evidence: [], explanation: "Evidenced." },
+      { name: "EU work authorization", level: "required", screening: "knockout", match: "gap", recency: "undated", evidence: [], explanation: "Not evidenced." }
+    ]
+  }), "en");
+  const names = [...html.matchAll(/requirement-name">([^<]+)</g)].map((m) => m[1]);
+  assert.deepEqual(names, ["EU work authorization", "PyTorch"]);
+  assert.match(html, /Hard filter/);
+});
+
+test("dated and undated CV evidence is surfaced, because a screener checks it", () => {
+  const html = renderAnalysisHtml(evidenceFixture({
+    requirements: [{ name: "C++", level: "required", screening: "weighted", match: "strong", recency: "dated", evidence: [], explanation: "Named." }]
+  }), "en");
+  assert.match(html, /dated in your CV/);
+});
+
+test("conditions the employer stated render above the analysis", () => {
+  const html = renderAnalysisHtml(evidenceFixture({
+    statedConditions: [{ type: "sponsorship", statement: "We are unable to provide visa sponsorship for this position.", evidence: [] }]
+  }), "en");
+  assert.match(html, /unable to provide visa sponsorship/);
+  assert.ok(html.indexOf("Conditions the employer states") < html.indexOf("Requirements"),
+    "a sponsorship line can make the fit question moot, so it cannot sit below the fold");
+  assert.match(html, /Check it against your own situation/);
+});
+
+test("a gap with no honest pre-application fix says so instead of inventing one", () => {
+  const html = renderAnalysisHtml(evidenceFixture({
+    gaps: [{ title: "510(k) submissions", severity: "material", summary: "Absent.", closable: "not_before_apply", howToClose: "Say plainly in the cover letter which parts of the process you have seen.", evidence: [] }]
+  }), "en");
+  assert.match(html, /Cannot be closed before applying:/);
+  assert.equal(html.includes("How to close it:"), false);
 });

@@ -21,6 +21,7 @@ export function renderAnalysisHtml(evidence, locale) {
   if (!evidence) return "";
   return [
     renderRecommendation(evidence.recommendation, locale),
+    renderStatedConditions(evidence.statedConditions, locale),
     `<p class="analysis-note">${escapeHtml(t(locale, "aiSupplement"))}</p>`,
     renderOverview(evidence.overview, locale),
     renderRequirements(evidence.requirements, locale),
@@ -47,11 +48,17 @@ export function escapeHtml(value) {
     .replaceAll("'", "&#039;");
 }
 
-const VERDICT_TONE = { strong_fit: "ok", worth_applying: "ok", stretch: "warn", weak_fit: "bad" };
+// worth_applying had the same tone as strong_fit, collapsing a quarter of the
+// taxonomy at the fastest-read point on the panel.
+const VERDICT_TONE = { strong_fit: "ok", worth_applying: "go", stretch: "warn", weak_fit: "bad" };
 
 /** The answer to "should I spend an evening on this?", stated before the detail. */
 function renderRecommendation(recommendation, locale) {
-  if (!recommendation) return "";
+  // Saying nothing here means the user paid for an analysis and the one thing they
+  // came for is silently absent.
+  if (!recommendation) {
+    return `<section class="result-card verdict tone-muted"><p class="verdict-rationale">${escapeHtml(t(locale, "verdictMissing"))}</p></section>`;
+  }
   const tone = VERDICT_TONE[recommendation.verdict] || "muted";
   return `<section class="result-card verdict tone-${escapeHtml(tone)}">
     <div class="verdict-head">
@@ -60,6 +67,31 @@ function renderRecommendation(recommendation, locale) {
     <p class="verdict-headline">${escapeHtml(recommendation.headline)}</p>
     <p class="verdict-rationale">${escapeHtml(recommendation.rationale)}</p>
   </section>`;
+}
+
+/**
+ * What the employer stated, directly under the verdict: a sponsorship line can
+ * make the whole fit question moot, so it must not sit below the fold.
+ */
+function renderStatedConditions(conditions, locale) {
+  if (!conditions?.length) return "";
+  const rows = conditions.map((item) => `<li class="condition">
+    <span class="tag tag-warn">${escapeHtml(t(locale, conditionKey(item.type)))}</span>
+    <p>${escapeHtml(item.statement)}</p>
+  </li>`).join("");
+  return `<section class="result-card conditions">
+    <h3>${escapeHtml(t(locale, "statedConditions"))}</h3>
+    <ul class="condition-list">${rows}</ul>
+    <p class="meta">${escapeHtml(t(locale, "conditionNote"))}</p>
+  </section>`;
+}
+
+function conditionKey(type) {
+  return {
+    sponsorship: "conditionSponsorship", work_authorization: "conditionWorkAuthorization",
+    citizenship: "conditionCitizenship", clearance: "conditionClearance",
+    onsite_location: "conditionOnsiteLocation", licence: "conditionLicence"
+  }[type] || "conditionOther";
 }
 
 function verdictKey(verdict) {
@@ -75,6 +107,9 @@ function renderOverview(overview, locale) {
   </section>`;
 }
 
+// A hard filter outranks everything: missing one ends the application regardless
+// of how the rest of the list scores.
+const SCREENING_ORDER = { knockout: 0, weighted: 1, nice_to_have: 2 };
 const LEVEL_ORDER = { required: 0, preferred: 1, unclear: 2 };
 const MATCH_ORDER = { gap: 0, no_evidence: 1, partial: 2, strong: 3 };
 const MATCH_TONE = { strong: "ok", partial: "warn", gap: "bad", no_evidence: "muted" };
@@ -85,6 +120,7 @@ function renderRequirements(requirements, locale) {
   }
   // Unmet required items first — that is what decides whether to apply at all.
   const sorted = [...requirements].sort((a, b) =>
+    (SCREENING_ORDER[a.screening] ?? 1) - (SCREENING_ORDER[b.screening] ?? 1) ||
     (LEVEL_ORDER[a.level] ?? 9) - (LEVEL_ORDER[b.level] ?? 9) ||
     (MATCH_ORDER[a.match] ?? 9) - (MATCH_ORDER[b.match] ?? 9));
 
@@ -95,7 +131,7 @@ function renderRequirements(requirements, locale) {
         <span class="requirement-name">${escapeHtml(item.name)}</span>
         <span class="tag tag-${escapeHtml(tone)}">${escapeHtml(t(locale, matchKey(item.match)))}</span>
       </div>
-      <p class="meta">${escapeHtml(t(locale, levelKey(item.level)))} · ${escapeHtml(item.explanation)}</p>
+      <p class="meta">${escapeHtml(requirementMeta(item, locale))} · ${escapeHtml(item.explanation)}</p>
     </li>`;
   }).join("");
 
@@ -115,6 +151,15 @@ function renderActions(actions, locale) {
   return `<section class="result-card"><h3>${escapeHtml(t(locale, "suggestedActions"))}</h3><ul class="action-list">${rows}</ul></section>`;
 }
 
+/** Level, whether it is a hard filter, and whether the CV's evidence is current. */
+function requirementMeta(item, locale) {
+  const parts = [t(locale, levelKey(item.level))];
+  if (item.screening === "knockout") parts.push(t(locale, "screeningKnockout"));
+  if (item.recency === "dated") parts.push(t(locale, "recencyDated"));
+  if (item.recency === "undated") parts.push(t(locale, "recencyUndated"));
+  return parts.join(" · ");
+}
+
 function renderCards(title, items, renderItem, locale, variant = "") {
   if (!items?.length) return "";
   const rows = items.map((item) => `<li>${renderItem(item)}</li>`).join("");
@@ -129,8 +174,9 @@ function renderGroup(title, sections) {
 
 /** A gap is only useful with a way to close it, so they render as one unit. */
 function gapItem(item, locale) {
+  const label = item.closable === "not_before_apply" ? "notClosableBefore" : "howToClose";
   const close = item.howToClose
-    ? `<p class="how-to-close"><strong>${escapeHtml(t(locale, "howToClose"))}</strong> ${escapeHtml(item.howToClose)}</p>`
+    ? `<p class="how-to-close"><strong>${escapeHtml(t(locale, label))}</strong> ${escapeHtml(item.howToClose)}</p>`
     : "";
   return titleAndSummary(item.title, item.summary, severityTag(item.severity, locale)) + close;
 }

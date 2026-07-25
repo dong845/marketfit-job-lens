@@ -2,6 +2,10 @@ import { resolveEvidenceRef } from "./evidenceBlocks.js";
 
 const PROVIDERS = new Set(["openai-api", "anthropic-api", "deepseek-api"]);
 const MATCH_STATES = new Set(["strong", "partial", "gap", "no_evidence"]);
+const SCREENING_ROLES = new Set(["knockout", "weighted", "nice_to_have"]);
+const RECENCY_STATES = new Set(["current", "recent", "dated", "undated"]);
+const CLOSABILITY = new Set(["before_apply", "not_before_apply"]);
+const CONDITION_TYPES = new Set(["sponsorship", "work_authorization", "citizenship", "clearance", "onsite_location", "licence", "other"]);
 const REQUIREMENT_LEVELS = new Set(["required", "preferred", "unclear"]);
 const EVIDENCE_SOURCES = new Set(["resume", "job"]);
 const GAP_SEVERITIES = new Set(["material", "moderate", "unknown"]);
@@ -28,6 +32,7 @@ export const RESULT_LIMITS = Object.freeze({
   interviewFocus: 8,
   uncertainties: 8,
   suggestedActions: 8,
+  statedConditions: 6,
   evidencePerItem: 4,
   overviewEvidence: 6
 });
@@ -73,7 +78,7 @@ export const VERDICTS = Object.freeze(["strong_fit", "worth_applying", "stretch"
 export const AGENT_EVIDENCE_SCHEMA = Object.freeze({
   type: "object",
   additionalProperties: false,
-  required: ["recommendation", "overview", "requirements", "strengths", "gaps", "risks", "resumeTailoring", "interviewFocus", "uncertainties", "suggestedActions"],
+  required: ["recommendation", "statedConditions", "overview", "requirements", "strengths", "gaps", "risks", "resumeTailoring", "interviewFocus", "uncertainties", "suggestedActions"],
   properties: {
     recommendation: {
       type: "object",
@@ -83,6 +88,23 @@ export const AGENT_EVIDENCE_SCHEMA = Object.freeze({
         verdict: { type: "string", enum: ["strong_fit", "worth_applying", "stretch", "weak_fit"] },
         headline: { type: "string", minLength: 1, maxLength: FIELD_LIMITS.headline },
         rationale: { type: "string", minLength: 1, maxLength: FIELD_LIMITS.rationale }
+      }
+    },
+    // Conditions the posting itself states. Reporting the employer's own sentence
+    // is not a legal opinion, and it is the one thing that can make the verdict
+    // irrelevant — a sponsorship line decides the application before fit does.
+    statedConditions: {
+      type: "array",
+      maxItems: RESULT_LIMITS.statedConditions,
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["type", "statement", "evidence"],
+        properties: {
+          type: { type: "string", enum: ["sponsorship", "work_authorization", "citizenship", "clearance", "onsite_location", "licence", "other"] },
+          statement: { type: "string", minLength: 1, maxLength: FIELD_LIMITS.prose },
+          evidence: { type: "array", minItems: 1, maxItems: 4, items: EVIDENCE_SCHEMA }
+        }
       }
     },
     overview: {
@@ -102,11 +124,19 @@ export const AGENT_EVIDENCE_SCHEMA = Object.freeze({
       items: {
         type: "object",
         additionalProperties: false,
-        required: ["name", "level", "match", "evidence", "explanation"],
+        required: ["name", "level", "screening", "match", "recency", "evidence", "explanation"],
         properties: {
           name: { type: "string", minLength: 1, maxLength: FIELD_LIMITS.name },
+          // What the posting calls it.
           level: { type: "string", enum: ["required", "preferred", "unclear"] },
+          // What it actually does at screening time, which is a different question:
+          // most "required" lists are wish-lists, and a handful of items are true
+          // filters. Counting the label is what made a missing clearance read as a
+          // score deduction rather than a stop.
+          screening: { type: "string", enum: ["knockout", "weighted", "nice_to_have"] },
           match: { type: "string", enum: ["strong", "partial", "gap", "no_evidence"] },
+          // A named skill last used in 2018 does not screen like one used daily.
+          recency: { type: "string", enum: ["current", "recent", "dated", "undated"] },
           evidence: {
             type: "array",
             minItems: 1,
@@ -124,11 +154,14 @@ export const AGENT_EVIDENCE_SCHEMA = Object.freeze({
       items: {
         type: "object",
         additionalProperties: false,
-        required: ["title", "severity", "summary", "howToClose", "evidence"],
+        required: ["title", "severity", "summary", "closable", "howToClose", "evidence"],
         properties: {
           title: { type: "string", minLength: 1, maxLength: FIELD_LIMITS.name },
           severity: { type: "string", enum: ["material", "moderate", "unknown"] },
           summary: { type: "string", minLength: 1, maxLength: FIELD_LIMITS.prose },
+          // Forcing a before-apply fix onto every gap manufactures the reframing a
+          // recruiter reads as padded. Some gaps have no honest close this week.
+          closable: { type: "string", enum: ["before_apply", "not_before_apply"] },
           howToClose: { type: "string", minLength: 1, maxLength: FIELD_LIMITS.prose },
           evidence: { type: "array", minItems: 1, maxItems: 4, items: EVIDENCE_SCHEMA }
         }
@@ -280,11 +313,14 @@ export function parseTaskRequest(value) {
         company: optionalText(job.company, "job.company", 240),
         location: optionalText(job.location, "job.location", 240),
         description: jobDescription,
+        employmentType: optionalText(job.employmentType, "job.employmentType", 120),
+        salary: optionalText(job.salary, "job.salary", 240),
         url: optionalText(job.url, "job.url", 1200)
       },
       candidate: {
         targetRole: optionalText(candidate.targetRole, "candidate.targetRole", 240),
         workAuthorization: optionalText(candidate.workAuthorization, "candidate.workAuthorization", 80),
+        targetMarket: optionalText(candidate.targetMarket, "candidate.targetMarket", 8),
         languages: arrayOfText(candidate.languages || [], "candidate.languages", 20, 80)
       }
     }
@@ -316,6 +352,7 @@ export function parseAgentEvidence(value, request) {
     // omits the verdict has still produced a usable analysis, and discarding a
     // paid result over a missing summary line would be the wrong trade.
     recommendation: parseRecommendation(result.recommendation),
+    statedConditions: parseStatedConditions(result.statedConditions, request),
     overview: {
       jobFocus: text(overview.jobFocus, "overview.jobFocus", FIELD_LIMITS.narrative),
       candidatePositioning: text(overview.candidatePositioning, "overview.candidatePositioning", FIELD_LIMITS.narrative),
@@ -379,15 +416,38 @@ function parseRecommendation(value) {
   }
 }
 
+/** Conditions the employer stated. Anything unrecognisable is dropped, not guessed. */
+function parseStatedConditions(value, request) {
+  if (!Array.isArray(value)) return [];
+  return value.slice(0, RESULT_LIMITS.statedConditions).flatMap((item) => {
+    if (!item || typeof item !== "object" || !CONDITION_TYPES.has(item.type)) return [];
+    try {
+      return [{
+        type: item.type,
+        statement: text(item.statement, "statedCondition.statement", FIELD_LIMITS.prose),
+        evidence: parseEvidenceList(item.evidence, request, "statedCondition.evidence", 4)
+      }];
+    } catch {
+      return [];
+    }
+  });
+}
+
 function parseRequirement(value, request) {
   const requirement = object(value, "Each requirement must be an object.");
   const level = text(requirement.level, "requirement.level", 20);
   const match = text(requirement.match, "requirement.match", 20);
   if (!REQUIREMENT_LEVELS.has(level) || !MATCH_STATES.has(match)) throw new BridgeError("OUTPUT_UNTRUSTED", "Provider returned an invalid requirement state.");
+  // Tolerated rather than required: a model that omits the newer axes has still
+  // produced a usable comparison, and rejecting it would discard a paid call.
+  const screening = SCREENING_ROLES.has(requirement.screening) ? requirement.screening : null;
+  const recency = RECENCY_STATES.has(requirement.recency) ? requirement.recency : null;
   return {
     name: text(requirement.name, "requirement.name", FIELD_LIMITS.name),
     level,
+    ...(screening ? { screening } : {}),
     match,
+    ...(recency ? { recency } : {}),
     evidence: parseEvidenceList(requirement.evidence, request, "requirement.evidence", 4),
     explanation: text(requirement.explanation, "requirement.explanation", FIELD_LIMITS.prose)
   };
@@ -410,6 +470,7 @@ function parseSeverityItem(value, request, label) {
     title: text(item.title, `${label}.title`, FIELD_LIMITS.name),
     severity,
     summary: text(item.summary, `${label}.summary`, FIELD_LIMITS.prose),
+    ...(CLOSABILITY.has(item.closable) ? { closable: item.closable } : {}),
     howToClose: optionalText(item.howToClose, `${label}.howToClose`, FIELD_LIMITS.prose),
     evidence: parseEvidenceList(item.evidence, request, `${label}.evidence`, 4)
   };
