@@ -1,4 +1,4 @@
-import { AGENT_EVIDENCE_SCHEMA, wireSchema } from "./schema.js";
+import { AGENT_EVIDENCE_SCHEMA, RESULT_LIMITS, wireSchema } from "./schema.js";
 import { buildEvidenceBlockBundle } from "./evidenceBlocks.js";
 
 export const AGENT_SYSTEM_POLICY = [
@@ -26,7 +26,7 @@ export function buildAnalyzePrompt(request) {
     "Resume-tailoring advice may improve framing, order, and specificity of existing evidence. It must never ask the candidate to claim unverified experience.",
     "Do not predict an interview, offer, hiring outcome, visa eligibility, or legal status. Focus on evidence, gaps, risks, and questions the candidate can verify.",
     "For each evidence item, return only an object like {\"ref\":\"JD-004\"} or {\"ref\":\"CV-012\"}. Do not copy evidence text into the output.",
-    "Prioritize the most important 8-12 requirements and 3-5 items in each other list.",
+    `Cover the requirements that matter, up to ${RESULT_LIMITS.requirements}, and up to ${RESULT_LIMITS.strengths} items in each other list. Prefer fewer, well-evidenced items over padding.`,
     "Return the JSON object only.",
     "<untrusted_request_data>",
     JSON.stringify({

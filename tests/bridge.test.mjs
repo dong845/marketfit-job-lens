@@ -3,8 +3,9 @@ import test from "node:test";
 import { createBridgeServer } from "../bridge/src/server.js";
 import { createProviderRouter } from "../bridge/src/providers.js";
 import { MODELS } from "../bridge/src/models.js";
-import { BridgeError, parseAgentEvidence, parseTaskRequest } from "../bridge/src/schema.js";
+import { BridgeError, parseAgentEvidence, parseTaskRequest, RESULT_LIMITS } from "../bridge/src/schema.js";
 import { createBridgeClient, isApiProvider, isCliProvider } from "../src/bridge/bridgeClient.js";
+import { outputSchemaJson } from "../bridge/src/prompts.js";
 
 const extensionId = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 const extensionOrigin = `chrome-extension://${extensionId}`;
@@ -327,4 +328,31 @@ test("extension client stores only the loopback pairing token, never an API key"
   assert.match(calls[1].url, /^http:\/\/127\.0\.0\.1:43123\/v1\/tasks$/);
   assert.equal(calls[0].options.headers["x-marketfit-extension-id"], extensionId);
   assert.equal(calls[1].options.headers["x-marketfit-extension-id"], extensionId);
+});
+
+test("a verbose reply is trimmed to the caps, not rejected", () => {
+  // Regression: the wire schema strips maxItems for strict/structured modes, so
+  // the model is not told the caps. Enforcing them by throwing meant a user paid
+  // for an analysis and got "Provider output exceeds the allowed result size".
+  const cite = [{ ref: "CV-001" }];
+  const many = (count, build) => Array.from({ length: count }, (_, index) => build(index));
+  const oversized = {
+    ...validEvidence(),
+    requirements: many(RESULT_LIMITS.requirements + 15, (i) => ({ name: `R${i}`, level: "required", match: "gap", evidence: cite, explanation: "x" })),
+    strengths: many(RESULT_LIMITS.strengths + 10, (i) => ({ title: `S${i}`, summary: "s", evidence: cite })),
+    suggestedActions: many(RESULT_LIMITS.suggestedActions + 10, (i) => ({ action: `A${i}`, priority: "now", evidence: cite }))
+  };
+  const parsed = parseAgentEvidence(oversized, parseTaskRequest(apiRequest("openai-api")));
+  assert.equal(parsed.requirements.length, RESULT_LIMITS.requirements);
+  assert.equal(parsed.strengths.length, RESULT_LIMITS.strengths);
+  assert.equal(parsed.suggestedActions.length, RESULT_LIMITS.suggestedActions);
+  // Trimming keeps the leading items, which is the order the model prioritised.
+  assert.equal(parsed.requirements[0].name, "R0");
+});
+
+test("the caps the model is told match the caps applied to its reply", () => {
+  const schema = JSON.parse(outputSchemaJson());
+  for (const key of ["requirements", "strengths", "gaps", "risks", "resumeTailoring", "interviewFocus", "uncertainties", "suggestedActions"]) {
+    assert.equal(schema.properties[key].maxItems, RESULT_LIMITS[key], `${key} cap drifted between schema and parser`);
+  }
 });

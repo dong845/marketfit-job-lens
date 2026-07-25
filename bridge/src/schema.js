@@ -11,6 +11,27 @@ const MAX_RESUME_LENGTH = 60000;
 const MAX_JOB_LENGTH = 60000;
 const MAX_REQUEST_LENGTH = 140000;
 
+/**
+ * How many items of each kind a result may carry.
+ *
+ * These bound what we ask for and what we render — they are not a trust boundary.
+ * A model that returns more than we want to show is being verbose, not hostile,
+ * so parseAgentEvidence trims the extras rather than rejecting the whole reply.
+ * Rejecting meant a user paid for an analysis and got an error instead.
+ */
+export const RESULT_LIMITS = Object.freeze({
+  requirements: 20,
+  strengths: 8,
+  gaps: 8,
+  risks: 8,
+  resumeTailoring: 8,
+  interviewFocus: 8,
+  uncertainties: 8,
+  suggestedActions: 8,
+  evidencePerItem: 4,
+  overviewEvidence: 6
+});
+
 const EVIDENCE_SCHEMA = Object.freeze({
   type: "object",
   additionalProperties: false,
@@ -49,7 +70,7 @@ export const AGENT_EVIDENCE_SCHEMA = Object.freeze({
     },
     requirements: {
       type: "array",
-      maxItems: 12,
+      maxItems: RESULT_LIMITS.requirements,
       items: {
         type: "object",
         additionalProperties: false,
@@ -68,10 +89,10 @@ export const AGENT_EVIDENCE_SCHEMA = Object.freeze({
         }
       }
     },
-    strengths: { type: "array", maxItems: 5, items: CITED_ITEM_SCHEMA },
+    strengths: { type: "array", maxItems: RESULT_LIMITS.strengths, items: CITED_ITEM_SCHEMA },
     gaps: {
       type: "array",
-      maxItems: 5,
+      maxItems: RESULT_LIMITS.gaps,
       items: {
         type: "object",
         additionalProperties: false,
@@ -86,7 +107,7 @@ export const AGENT_EVIDENCE_SCHEMA = Object.freeze({
     },
     risks: {
       type: "array",
-      maxItems: 5,
+      maxItems: RESULT_LIMITS.risks,
       items: {
         type: "object",
         additionalProperties: false,
@@ -101,7 +122,7 @@ export const AGENT_EVIDENCE_SCHEMA = Object.freeze({
     },
     resumeTailoring: {
       type: "array",
-      maxItems: 5,
+      maxItems: RESULT_LIMITS.resumeTailoring,
       items: {
         type: "object",
         additionalProperties: false,
@@ -115,7 +136,7 @@ export const AGENT_EVIDENCE_SCHEMA = Object.freeze({
     },
     interviewFocus: {
       type: "array",
-      maxItems: 5,
+      maxItems: RESULT_LIMITS.interviewFocus,
       items: {
         type: "object",
         additionalProperties: false,
@@ -129,7 +150,7 @@ export const AGENT_EVIDENCE_SCHEMA = Object.freeze({
     },
     uncertainties: {
       type: "array",
-      maxItems: 6,
+      maxItems: RESULT_LIMITS.uncertainties,
       items: {
         type: "object",
         additionalProperties: false,
@@ -143,7 +164,7 @@ export const AGENT_EVIDENCE_SCHEMA = Object.freeze({
     },
     suggestedActions: {
       type: "array",
-      maxItems: 5,
+      maxItems: RESULT_LIMITS.suggestedActions,
       items: {
         type: "object",
         additionalProperties: false,
@@ -163,10 +184,11 @@ export const AGENT_EVIDENCE_SCHEMA = Object.freeze({
  * risks the request being rejected outright rather than the constraint being
  * enforced, which would fail every analysis rather than trimming a long one.
  *
- * Dropping them loses nothing: parseAgentEvidence below already enforces every
- * length and count bound at parse time, on output we do not control. The schema
- * above stays the single source of truth for those limits — this only changes
- * what we put on the wire.
+ * Dropping them means the provider is no longer told the bounds, so parseAgentEvidence
+ * has to apply them itself — and it must apply them the way a provider would have,
+ * by producing a shorter result rather than refusing one. It trims over-long lists
+ * and rejects only genuinely malformed output. The schema above remains the single
+ * source of truth for the limits; this only changes what travels on the wire.
  */
 const UNSUPPORTED_SCHEMA_KEYWORDS = new Set([
   "minLength", "maxLength", "pattern", "format",
@@ -254,9 +276,11 @@ export function parseAgentEvidence(value, request) {
   const interviewFocus = Array.isArray(result.interviewFocus) ? result.interviewFocus : invalid("interviewFocus must be an array.");
   const uncertainties = Array.isArray(result.uncertainties) ? result.uncertainties : invalid("uncertainties must be an array.");
   const suggestedActions = Array.isArray(result.suggestedActions) ? result.suggestedActions : invalid("suggestedActions must be an array.");
-  if (requirements.length > 12 || strengths.length > 5 || gaps.length > 5 || risks.length > 5 || resumeTailoring.length > 5 || interviewFocus.length > 5 || uncertainties.length > 6 || suggestedActions.length > 5) {
-    throw new BridgeError("OUTPUT_UNTRUSTED", "Provider output exceeds the allowed result size.");
-  }
+  // Trim rather than reject: an over-long list is verbosity, and discarding a
+  // paid analysis over it is worse than showing the first N items. Providers are
+  // told the caps via the schema, but strict/structured modes drop the keyword
+  // that carries them, so the ceiling has to be enforced here too.
+  const trim = (items, key) => items.slice(0, RESULT_LIMITS[key]);
 
   return {
     overview: {
@@ -265,13 +289,13 @@ export function parseAgentEvidence(value, request) {
       fitNarrative: text(overview.fitNarrative, "overview.fitNarrative", 650),
       evidence: parseEvidenceList(overview.evidence, request, "overview.evidence", 6, 2)
     },
-    requirements: requirements.map((item) => parseRequirement(item, request)),
-    strengths: strengths.map((item) => parseCitedItem(item, request, "strength")),
-    gaps: gaps.map((item) => parseSeverityItem(item, request, "gap")),
-    risks: risks.map((item) => parseSeverityItem(item, request, "risk")),
-    resumeTailoring: resumeTailoring.map((item) => parseTailoringItem(item, request)),
-    interviewFocus: interviewFocus.map((item) => parseInterviewItem(item, request)),
-    uncertainties: uncertainties.map((item) => {
+    requirements: trim(requirements, "requirements").map((item) => parseRequirement(item, request)),
+    strengths: trim(strengths, "strengths").map((item) => parseCitedItem(item, request, "strength")),
+    gaps: trim(gaps, "gaps").map((item) => parseSeverityItem(item, request, "gap")),
+    risks: trim(risks, "risks").map((item) => parseSeverityItem(item, request, "risk")),
+    resumeTailoring: trim(resumeTailoring, "resumeTailoring").map((item) => parseTailoringItem(item, request)),
+    interviewFocus: trim(interviewFocus, "interviewFocus").map((item) => parseInterviewItem(item, request)),
+    uncertainties: trim(uncertainties, "uncertainties").map((item) => {
       const uncertainty = object(item, "Each uncertainty must be an object.");
       return {
         type: text(uncertainty.type, "uncertainty.type", 80),
@@ -279,7 +303,7 @@ export function parseAgentEvidence(value, request) {
         evidence: parseEvidenceList(uncertainty.evidence, request, "uncertainty.evidence", 4)
       };
     }),
-    suggestedActions: suggestedActions.map((item) => parseAction(item, request))
+    suggestedActions: trim(suggestedActions, "suggestedActions").map((item) => parseAction(item, request))
   };
 }
 
