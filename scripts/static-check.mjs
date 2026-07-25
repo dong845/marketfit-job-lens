@@ -30,6 +30,11 @@ assert.equal(/shell\s*:\s*true/.test(allBridge), false, "Bridge subprocesses mus
 assert.match(readFileSync(join(root, "bridge/src/server.js"), "utf8"), /host\s*=\s*"127\.0\.0\.1"/, "Bridge must bind loopback by default.");
 assert.equal(existsSync(join(root, "vendor/pdfjs/pdf.mjs")), true, "The PDF parser must be bundled locally.");
 assert.equal(existsSync(join(root, "vendor/pdfjs/pdf.worker.mjs")), true, "The PDF worker must be bundled locally.");
+// Chrome ignores SVG icons, so every declared icon must exist as a rendered PNG.
+for (const path of Object.values(manifest.icons)) {
+  assert.equal(existsSync(join(root, path)), true, `Declared icon is missing: ${path}`);
+  assert.match(path, /\.png$/, `Chrome cannot use a non-PNG icon: ${path}`);
+}
 
 console.log(`Static checks passed for ${sourceFiles.length} extension modules and ${bridgeFiles.length} bridge modules`);
 
