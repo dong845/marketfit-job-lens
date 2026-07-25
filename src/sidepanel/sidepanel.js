@@ -7,12 +7,12 @@ import { modelsForProvider } from "../../bridge/src/models.js";
 import { configurePdfWorker, extractResumePdf } from "../profile/pdfResume.js";
 import { applyTranslations, format, t } from "../ui/i18n.js";
 import { escapeHtml, renderAnalysisHtml } from "../ui/analysisView.js";
+import { LATEST_KEY, buildReportPayload, expiredReportKeys, reportKey, reportUrl } from "../report/payload.js";
 
 const LOCALE_KEY = "marketfit.locale.v1";
 const PERSONAL_STORAGE_KEYS = ["marketfit.state.v2", "marketfit.profile.v1", "marketfit.lastAnalysis.v1"];
 const BRIDGE_COMMAND = "npm run bridge -- --port 8765";
 const CLI_PROVIDER_LABELS = { codex: "codex", "claude-code": "claude" };
-const REPORT_PREFIX = "marketfit.report.";
 
 let locale = "en";
 const fields = {
@@ -522,31 +522,49 @@ function startElapsedTimer(model) {
 }
 
 /**
- * Hands the result to a full-page report. The payload goes through
- * chrome.storage.session rather than a blob URL: a blob URL belongs to this panel
- * document and is revoked when the panel closes, which would break any report tab
- * still open. Session storage clears itself when the browser closes.
+ * Hands the result to a full-page report.
+ *
+ * The payload goes through chrome.storage.session rather than a blob URL: a blob
+ * URL belongs to this panel document and is revoked when the panel closes, which
+ * would break any report tab still open on it. Session storage clears itself when
+ * the browser closes.
+ *
+ * Every failure here is reported. A button that does nothing when pressed is the
+ * worst outcome, because there is nothing for the user to act on.
  */
 async function openFullReport() {
-  if (!lastAgentEvidence || !lastRunContext) return;
+  if (!lastAgentEvidence || !lastRunContext) {
+    return setStatus(t(locale, "reportNothingToShow"));
+  }
+  const session = chrome.storage?.session;
+  if (!session) return setStatus(t(locale, "reportFailed"));
+
   try {
     const id = globalThis.crypto?.randomUUID?.() || String(Date.now());
-    const { job, provider, model, generatedAt } = lastRunContext;
-    await chrome.storage.session.set({
-      [REPORT_PREFIX + id]: {
-        evidence: lastAgentEvidence,
-        job: { title: job.title, company: job.company, location: job.location, url: job.url },
-        provider,
-        model,
-        locale,
-        generatedAt
-      }
+    await session.set({
+      [reportKey(id)]: buildReportPayload({ ...lastRunContext, evidence: lastAgentEvidence, locale }),
+      // Lets the page recover if it is ever opened without a usable query string.
+      [LATEST_KEY]: id
     });
-    await chrome.tabs.create({ url: chrome.runtime.getURL(`src/report/report.html?id=${id}`) });
+    await pruneOldReports(session);
+    // Note: the query string is appended to the resolved URL, not passed through
+    // getURL(), which would percent-encode the "?" into a path that does not exist.
+    await chrome.tabs.create({ url: reportUrl(chrome.runtime.getURL("src/report/report.html"), id) });
   } catch (error) {
-    setStatus(error.message || t(locale, "reportFailed"));
+    setStatus(error?.message || t(locale, "reportFailed"));
   }
 }
+
+async function pruneOldReports(session) {
+  try {
+    const stored = await session.get(null);
+    const stale = expiredReportKeys(Object.keys(stored || {}));
+    if (stale.length) await session.remove(stale);
+  } catch {
+    // Housekeeping only — never block opening the report the user asked for.
+  }
+}
+
 function setStatus(message) { fields.status.textContent = message; }
 function qualityMessage(job) {
   const quality = validateCapturedJob(job);

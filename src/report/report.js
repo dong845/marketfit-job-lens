@@ -1,5 +1,6 @@
 import { escapeHtml, renderAnalysisHtml } from "../ui/analysisView.js";
-import { format, t } from "../ui/i18n.js";
+import { t } from "../ui/i18n.js";
+import { LATEST_KEY, reportKey } from "./payload.js";
 
 /**
  * Full-page view of one analysis.
@@ -9,19 +10,13 @@ import { format, t } from "../ui/i18n.js";
  * rather than a blob URL, because a blob URL is owned by the side-panel document
  * and dies the moment that panel closes — taking any tab still showing it with it.
  */
-const REPORT_PREFIX = "marketfit.report.";
-
 render();
 
 async function render() {
-  const id = new URLSearchParams(location.search).get("id");
   const root = document.getElementById("report");
-  if (!id) return fail(root, "This report link is missing its identifier.");
-
   let payload;
   try {
-    const stored = await chrome.storage.session.get(REPORT_PREFIX + id);
-    payload = stored[REPORT_PREFIX + id];
+    payload = await loadPayload(new URLSearchParams(location.search).get("id"));
   } catch {
     return fail(root, "This report could not be read from browser storage.");
   }
@@ -49,6 +44,18 @@ async function render() {
     <footer class="report-foot"><p>${escapeHtml(t(locale, "aiSupplement"))}</p></footer>`;
 
   document.getElementById("printReport").addEventListener("click", () => window.print());
+}
+
+/** Falls back to the most recent report when the link carries no usable id. */
+async function loadPayload(id) {
+  if (id) {
+    const stored = await chrome.storage.session.get(reportKey(id));
+    if (stored[reportKey(id)]) return stored[reportKey(id)];
+  }
+  const latest = await chrome.storage.session.get(LATEST_KEY);
+  if (!latest[LATEST_KEY]) return null;
+  const fallback = await chrome.storage.session.get(reportKey(latest[LATEST_KEY]));
+  return fallback[reportKey(latest[LATEST_KEY])] || null;
 }
 
 function fail(root, message) {

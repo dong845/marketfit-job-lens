@@ -1,0 +1,69 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { join } from "node:path";
+import { KEEP_REPORTS, LATEST_KEY, REPORT_PREFIX, buildReportPayload, expiredReportKeys, reportKey, reportUrl } from "../src/report/payload.js";
+
+const root = fileURLToPath(new URL("..", import.meta.url));
+
+test("the query string is appended to the resolved URL, never handed to getURL", () => {
+  // chrome.runtime.getURL() takes a path and percent-encodes reserved characters,
+  // so getURL("report.html?id=x") yields ".../report.html%3Fid=x" — a file that
+  // does not exist. The tab opened on nothing and the button looked dead.
+  const sidepanel = readFileSync(join(root, "src/sidepanel/sidepanel.js"), "utf8");
+  assert.equal(/getURL\(`[^`]*\?/.test(sidepanel), false, "getURL must not be given a query string");
+  assert.equal(/getURL\("[^"]*\?/.test(sidepanel), false, "getURL must not be given a query string");
+  assert.match(sidepanel, /reportUrl\(chrome\.runtime\.getURL\("src\/report\/report\.html"\), id\)/);
+
+  assert.equal(reportUrl("chrome-extension://abc/src/report/report.html", "id-1"),
+               "chrome-extension://abc/src/report/report.html?id=id-1");
+});
+
+test("ids that need escaping survive the round trip", () => {
+  const url = reportUrl("chrome-extension://abc/r.html", "a b&c=d");
+  assert.equal(url, "chrome-extension://abc/r.html?id=a%20b%26c%3Dd");
+  assert.equal(new URL(url).searchParams.get("id"), "a b&c=d");
+});
+
+test("the payload carries the job's identity and never the CV or page body", () => {
+  const payload = buildReportPayload({
+    evidence: { overview: {} },
+    job: { title: "T", company: "C", location: "L", url: "https://x/y", sourceText: "FULL JOB PAGE BODY" },
+    provider: "openai-api", model: "gpt-5-mini", locale: "en", generatedAt: "2026-07-25T10:00:00.000Z"
+  });
+  const serialized = JSON.stringify(payload);
+  assert.equal(serialized.includes("FULL JOB PAGE BODY"), false, "the raw page body must not be stored");
+  assert.equal(payload.job.title, "T");
+  assert.equal(payload.model, "gpt-5-mini");
+  assert.equal(payload.generatedAt, "2026-07-25T10:00:00.000Z");
+});
+
+test("a job with missing fields still produces a renderable payload", () => {
+  const payload = buildReportPayload({ evidence: {}, job: undefined, provider: "codex", model: "codex", locale: "zh", generatedAt: "" });
+  assert.deepEqual(payload.job, { title: "", company: "", location: "", url: "" });
+});
+
+test("both ends agree on the storage keys", () => {
+  const reportPage = readFileSync(join(root, "src/report/report.js"), "utf8");
+  const sidepanel = readFileSync(join(root, "src/sidepanel/sidepanel.js"), "utf8");
+  for (const source of [reportPage, sidepanel]) {
+    assert.match(source, /from "\.\.?\/(report|report)\/payload\.js"|from "\.\/payload\.js"/);
+    assert.equal(/"marketfit\.report\./.test(source), false, "key names must come from payload.js, not be respelled");
+  }
+  assert.equal(reportKey("x"), `${REPORT_PREFIX}x`);
+  assert.notEqual(LATEST_KEY, reportKey("latest-id"));
+});
+
+test("old reports are pruned but the newest and the latest pointer survive", () => {
+  const keys = [...Array(KEEP_REPORTS + 3)].map((_, i) => reportKey(`r${i}`)).concat([LATEST_KEY, "marketfit.locale.v1"]);
+  const stale = expiredReportKeys(keys);
+  assert.equal(stale.length, 3);
+  assert.deepEqual(stale, [reportKey("r0"), reportKey("r1"), reportKey("r2")]);
+  assert.equal(stale.includes(LATEST_KEY), false);
+  assert.equal(stale.includes("marketfit.locale.v1"), false);
+});
+
+test("nothing is pruned while under the retention count", () => {
+  assert.deepEqual(expiredReportKeys([reportKey("a"), reportKey("b"), LATEST_KEY]), []);
+});

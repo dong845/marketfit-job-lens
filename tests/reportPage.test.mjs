@@ -15,12 +15,12 @@ test("the report is handed over through session storage, not a blob URL", () => 
   // A blob URL is owned by the side-panel document and is revoked when that panel
   // closes, which would break any report tab still open on it.
   assert.equal(sidepanel.includes("createObjectURL"), false);
-  assert.match(sidepanel, /chrome\.storage\.session\.set/);
-  assert.match(sidepanel, /chrome\.runtime\.getURL\(`src\/report\/report\.html\?id=\$\{id\}`\)/);
+  assert.match(sidepanel, /session\.set\(/);
   assert.match(script, /chrome\.storage\.session\.get/);
-  // Both sides must agree on the key namespace.
-  const prefix = /const REPORT_PREFIX = "([^"]+)"/;
-  assert.equal(sidepanel.match(prefix)[1], script.match(prefix)[1]);
+  // Both sides import the key names from payload.js; see reportPayload.test.mjs
+  // for the URL construction the dead button came from.
+  assert.match(sidepanel, /from "\.\.\/report\/payload\.js"/);
+  assert.match(script, /from "\.\/payload\.js"/);
 });
 
 test("the report ids the panel writes are unguessable per analysis", () => {
@@ -28,8 +28,12 @@ test("the report ids the panel writes are unguessable per analysis", () => {
 });
 
 test("a missing or expired report explains itself instead of rendering blank", () => {
-  assert.match(script, /missing its identifier/);
   assert.match(script, /has expired/);
+  assert.match(script, /could not be read from browser storage/);
+  // A link without a usable id falls back to the most recent report rather than
+  // dead-ending, since the id only travels in a query string.
+  assert.match(script, /async function loadPayload/);
+  assert.match(script, /LATEST_KEY/);
 });
 
 test("report evidence is expanded, unlike the panel's collapsed disclosures", () => {
