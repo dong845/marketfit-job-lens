@@ -3,7 +3,7 @@ import { captureActiveTab, isSameJobPage, requestOptionalSiteAccess, siteOriginF
 import { createDirectApiClient } from "../ai/directApiClient.js";
 import { buildRemoteTransmissionPreview } from "../privacy/redaction.js";
 import { createBridgeClient, isApiProvider, isCliProvider } from "../bridge/bridgeClient.js";
-import { modelsForProvider } from "../../bridge/src/models.js";
+import { MODELS, modelsForProvider } from "../../bridge/src/models.js";
 import { configurePdfWorker, extractResumePdf } from "../profile/pdfResume.js";
 import { applyTranslations, format, t } from "../ui/i18n.js";
 import { escapeHtml, renderAnalysisHtml } from "../ui/analysisView.js";
@@ -12,6 +12,7 @@ import { LATEST_KEY, buildReportPayload, expiredReportKeys, reportKey, reportUrl
 const LOCALE_KEY = "marketfit.locale.v1";
 const PERSONAL_STORAGE_KEYS = ["marketfit.state.v2", "marketfit.profile.v1", "marketfit.lastAnalysis.v1"];
 const BRIDGE_COMMAND = "npm run bridge -- --port 8765";
+const TIMING_KEY = "marketfit.timing.v1";
 const CLI_PROVIDER_LABELS = { codex: "codex", "claude-code": "claude" };
 
 let locale = "en";
@@ -23,7 +24,7 @@ const fields = {
   apiModel: byId("apiModel"), accessRetryRow: byId("accessRetryRow"), jobEditorPanel: byId("jobEditorPanel"), jobTextEditor: byId("jobTextEditor"),
   jobTitleInput: byId("jobTitleInput"), jobCompanyInput: byId("jobCompanyInput"), jobLocationInput: byId("jobLocationInput"),
   bridgeCommand: byId("bridgeCommand"), copyBridgeCommand: byId("copyBridgeCommand"), appVersion: byId("appVersion"),
-  reportRow: byId("reportRow"), openReport: byId("openReport")
+  reportRow: byId("reportRow"), openReport: byId("openReport"), runProgress: byId("runProgress")
 };
 const bridgeClient = createBridgeClient();
 const directApiClient = createDirectApiClient();
@@ -486,6 +487,7 @@ async function runAgentReview() {
     lastAgentEvidence = null;
     lastRunContext = null;
     fields.reportRow.hidden = true;
+    setStatus("");
     const task = {
       requestId: globalThis.crypto?.randomUUID?.() || `marketfit-${Date.now()}`, taskType: "analyze_job", provider, privacyMode: "provider_cloud",
       ...(isApiProvider(provider) ? { credential: { type: "session_api_key", apiKey } } : {}),
@@ -494,7 +496,8 @@ async function runAgentReview() {
     };
     const model = isApiProvider(provider) ? fields.apiModel.value : provider;
     renderActionMessage(t(locale, "requestingAi"));
-    const stopTimer = startElapsedTimer(model);
+    const startedAt = Date.now();
+    const stopTimer = startElapsedTimer(model, await estimateSeconds(model));
     try {
       const response = isApiProvider(provider) ? await directApiClient.runTask(task) : await bridgeClient.runTask(task);
       // Both routes answer with the same envelope. A missing result means the
@@ -506,6 +509,7 @@ async function runAgentReview() {
     } finally {
       stopTimer();
     }
+    await recordDuration(model, Math.round((Date.now() - startedAt) / 1000));
     renderAnalysis(lastAgentEvidence);
     fields.reportRow.hidden = false;
     setStatus(format(locale, "aiFinished", { provider }));
@@ -519,18 +523,56 @@ async function runAgentReview() {
   }
 }
 
-function renderAnalysis(evidence) { fields.result.innerHTML = renderAnalysisHtml(evidence, locale); }
+function renderAnalysis(evidence) { fields.result.innerHTML = renderAnalysisHtml(evidence, locale, { showEvidence: false }); }
 
 /**
  * Reasoning models routinely take a minute or more on this prompt. Without a
  * moving number the panel looks hung, and people reload or click again.
  */
-function startElapsedTimer(model) {
+function startElapsedTimer(model, estimate) {
   const startedAt = Date.now();
-  const tick = () => setStatus(format(locale, "analysing", { model, seconds: Math.round((Date.now() - startedAt) / 1000) }));
+  const tick = () => {
+    const seconds = Math.round((Date.now() - startedAt) / 1000);
+    // Past the estimate, stop repeating a number that is now wrong.
+    fields.runProgress.textContent = seconds > estimate
+      ? format(locale, "analysingOvertime", { model, seconds })
+      : format(locale, "analysing", { model, seconds, estimate });
+  };
+  fields.runProgress.hidden = false;
   tick();
   const handle = setInterval(tick, 1000);
-  return () => clearInterval(handle);
+  return () => {
+    clearInterval(handle);
+    fields.runProgress.hidden = true;
+    fields.runProgress.textContent = "";
+  };
+}
+
+/**
+ * How long to say this will take. Starts from the registry's rough figure and is
+ * replaced by what this machine actually measured for that model, so the estimate
+ * reflects the user's own network and job sizes rather than a number we invented.
+ */
+async function estimateSeconds(model) {
+  const fallback = MODELS[model]?.typicalSeconds || 60;
+  try {
+    const stored = await chrome.storage.local.get(TIMING_KEY);
+    return Math.round(stored[TIMING_KEY]?.[model] || fallback);
+  } catch {
+    return fallback;
+  }
+}
+
+async function recordDuration(model, seconds) {
+  try {
+    const stored = await chrome.storage.local.get(TIMING_KEY);
+    const timings = stored[TIMING_KEY] || {};
+    // Smoothed, so one slow run does not dominate the next estimate.
+    timings[model] = timings[model] ? Math.round(timings[model] * 0.6 + seconds * 0.4) : seconds;
+    await chrome.storage.local.set({ [TIMING_KEY]: timings });
+  } catch {
+    // An estimate is a convenience; failing to remember one must not fail a run.
+  }
 }
 
 /**
@@ -590,7 +632,7 @@ function renderReportProblem(detail, url) {
     : "";
   fields.result.innerHTML =
     `<div class="empty action-message"><p><strong>${escapeHtml(t(locale, "reportFailed"))}</strong></p><p class="meta">${escapeHtml(detail)}</p>${manual}</div>`
-    + renderAnalysisHtml(lastAgentEvidence, locale);
+    + renderAnalysisHtml(lastAgentEvidence, locale, { showEvidence: false });
   setStatus(t(locale, "reportFailed"));
 }
 

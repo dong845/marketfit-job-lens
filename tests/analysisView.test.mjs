@@ -99,3 +99,46 @@ test("escapeHtml covers every character that can break out of markup", () => {
   assert.equal(escapeHtml(null), "");
   assert.equal(escapeHtml(undefined), "");
 });
+
+test("the verdict leads, so the apply decision is answerable without scrolling", () => {
+  const html = renderAnalysisHtml(evidenceFixture({
+    recommendation: { verdict: "stretch", headline: "Worth applying once the C++ bullet is specific.", rationale: "Two of three required areas are evidenced." }
+  }), "en");
+  assert.ok(html.indexOf("verdict") < html.indexOf("Requirements"), "the verdict must come before the detail");
+  assert.match(html, /class="result-card verdict tone-warn"/);
+  assert.match(html, /A stretch/);
+  assert.match(html, /Worth applying once the C\+\+ bullet is specific\./);
+});
+
+test("each verdict maps to its own tone", () => {
+  const tone = (verdict) => renderAnalysisHtml(evidenceFixture({
+    recommendation: { verdict, headline: "h", rationale: "r" }
+  }), "en").match(/result-card verdict tone-(\w+)/)[1];
+  assert.equal(tone("strong_fit"), "ok");
+  assert.equal(tone("worth_applying"), "ok");
+  assert.equal(tone("stretch"), "warn");
+  assert.equal(tone("weak_fit"), "bad");
+});
+
+test("an analysis without a verdict still renders everything else", () => {
+  const html = renderAnalysisHtml(evidenceFixture({ recommendation: null }), "en");
+  assert.equal(html.includes("result-card verdict"), false);
+  assert.match(html, /Requirements/);
+});
+
+test("a gap carries the way to close it", () => {
+  const html = renderAnalysisHtml(evidenceFixture({
+    gaps: [{ title: "Regulatory", severity: "material", summary: "Absent from the CV.", howToClose: "Surface the verification documents you already wrote.", evidence: [] }]
+  }), "en");
+  assert.match(html, /How to close it:/);
+  assert.match(html, /Surface the verification documents you already wrote\./);
+});
+
+test("the panel omits quotes while the report expands them", () => {
+  const panel = renderAnalysisHtml(evidenceFixture(), "en", { showEvidence: false });
+  const report = renderAnalysisHtml(evidenceFixture(), "en", { showEvidence: true, evidenceOpen: true });
+  assert.equal((panel.match(/class="evidence"/g) || []).length, 0, "the panel must not repeat source text under every point");
+  assert.ok((report.match(/class="evidence" open/g) || []).length > 0, "the report keeps them, expanded");
+  // The analysis itself is unaffected by dropping the quotes.
+  assert.match(panel, /FDA submissions/);
+});

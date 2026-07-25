@@ -14,8 +14,14 @@
  * for. Reasoning models spend part of this budget on thinking before writing a
  * single character of JSON, so they get the most headroom.
  */
+/**
+ * typicalSeconds is a rough starting estimate only, replaced by the duration this
+ * machine actually measured for that model on its first successful run. It is a
+ * progress hint, never presented as a measurement we have made.
+ */
 export const MODELS = Object.freeze({
   "claude-opus-5": {
+    typicalSeconds: 90,
     provider: "anthropic-api",
     labelKey: "anthropicOpus5",
     maxOutputTokens: 24000,
@@ -23,6 +29,7 @@ export const MODELS = Object.freeze({
     effort: "medium"
   },
   "claude-sonnet-5": {
+    typicalSeconds: 55,
     provider: "anthropic-api",
     labelKey: "anthropicSonnet5",
     maxOutputTokens: 24000,
@@ -32,24 +39,28 @@ export const MODELS = Object.freeze({
   // Retained as the lower-cost option. 4.6 predates Anthropic structured
   // outputs, so it keeps the prompt-and-extract path.
   "claude-opus-4-6": {
+    typicalSeconds: 60,
     provider: "anthropic-api",
     labelKey: "anthropicOpus46",
     maxOutputTokens: 16000,
     structuredOutputs: false
   },
   "claude-sonnet-4-6": {
+    typicalSeconds: 45,
     provider: "anthropic-api",
     labelKey: "anthropicSonnet46",
     maxOutputTokens: 16000,
     structuredOutputs: false
   },
   "gpt-5": {
+    typicalSeconds: 80,
     provider: "openai-api",
     labelKey: "openAiGpt5",
     maxOutputTokens: 24000,
     structuredOutputs: true
   },
   "gpt-5-mini": {
+    typicalSeconds: 40,
     provider: "openai-api",
     labelKey: "openAiGpt5Mini",
     maxOutputTokens: 24000,

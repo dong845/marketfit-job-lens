@@ -49,6 +49,8 @@ button { border: 1px solid transparent; border-radius: 6px; cursor: pointer; fon
 button:disabled { cursor: wait; opacity: .65; }
 .primary { background: var(--accent); color: #fff; }.primary:hover { background: var(--accent-strong); }
 .analyze-command { min-height: 42px; width: 100%; }
+/* Progress belongs next to the control that started it, not in the title bar. */
+.run-progress { background: var(--soft-teal); border-radius: 6px; color: #21464b; font-size: 12px; font-weight: 650; padding: 8px 10px; text-align: center; }
 .secondary, .quiet { background: var(--soft-teal); color: #164850; }.quiet { background: #eef2f4; color: var(--ink); }
 .icon-command { align-items: center; display: inline-flex; font-size: 17px; justify-content: center; min-width: 34px; padding: 0; }
 .file-status { color: var(--muted); font-size: 12px; line-height: 1.45; min-height: 18px; }
@@ -109,3 +111,14 @@ code { font-size: 11px; }
 .evidence blockquote { border-left: 2px solid var(--accent); color: var(--muted); font-size: 11px; line-height: 1.4; margin: 6px 0 0; padding-left: 7px; }
 
 @media (max-width: 360px) { .field-grid { grid-template-columns: 1fr; }.control-row { align-items: stretch; flex-direction: column; } }
+
+/* The verdict answers "should I spend an evening on this?" before any detail. */
+.verdict { border-left: 4px solid var(--line); gap: 6px; }
+.verdict.tone-ok { border-left-color: var(--good); }
+.verdict.tone-warn { border-left-color: var(--warn); }
+.verdict.tone-bad { border-left-color: var(--danger); }
+.verdict-head { display: flex; }
+.verdict-headline { font-size: 14px; font-weight: 700; line-height: 1.4; }
+.verdict-rationale { color: var(--muted); font-size: 12px; line-height: 1.5; }
+.how-to-close { color: var(--ink); font-size: 12px; line-height: 1.5; margin-top: 5px; }
+.how-to-close strong { color: var(--accent-strong); }

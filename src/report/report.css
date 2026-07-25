@@ -86,3 +86,13 @@ h1, h2, h3, h4, p { margin: 0; }
   /* Disclosures are already open in the report; keep them open on paper too. */
   .evidence > summary { display: none; }
 }
+
+.verdict { border-left: 5px solid var(--line); }
+.verdict.tone-ok { border-left-color: var(--good); }
+.verdict.tone-warn { border-left-color: var(--warn); }
+.verdict.tone-bad { border-left-color: var(--danger); }
+.verdict-head { display: flex; }
+.verdict-headline { font-size: 18px; font-weight: 700; line-height: 1.4; }
+.verdict-rationale { color: var(--muted); font-size: 14px; line-height: 1.6; }
+.how-to-close { font-size: 13px; line-height: 1.55; margin-top: 6px; }
+.how-to-close strong { color: var(--accent-strong); }

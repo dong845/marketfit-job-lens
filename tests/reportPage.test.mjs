@@ -43,7 +43,9 @@ test("a missing or expired report explains itself instead of rendering blank", (
 
 test("report evidence is expanded, unlike the panel's collapsed disclosures", () => {
   assert.match(script, /renderAnalysisHtml\(evidence, locale, \{ evidenceOpen: true \}\)/);
-  assert.match(sidepanel, /renderAnalysisHtml\(evidence, locale\)/);
+  // The panel drops quotes entirely — they buried the analysis in a 390px column.
+  const sidepanelSource = readFileSync(join(root, "src/sidepanel/sidepanel.js"), "utf8");
+  assert.match(sidepanelSource, /renderAnalysisHtml\(evidence, locale, \{ showEvidence: false \}\)/);
 });
 
 test("the report links out safely and stays printable", () => {

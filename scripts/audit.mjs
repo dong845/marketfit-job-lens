@@ -78,12 +78,16 @@ const usedKeys = new Set();
 for (const f of consumers) {
   const src = readFileSync(join(root, f), "utf8");
   for (const m of src.matchAll(/data-i18n(?:-title|-placeholder)?="([^"]+)"/g)) usedKeys.add(m[1]);
-  for (const m of src.matchAll(/\bt\(\w+,\s*"([^"]+)"\)/g)) usedKeys.add(m[1]);
+  // Keys may be chosen inside the call (a ternary), so take every quoted string
+  // that appears within a t(...) invocation, not just a lone literal argument.
+  for (const call of src.matchAll(/\bt\(\w+,([^;\n]{0,160}?)\)/g)) {
+    for (const key of call[1].matchAll(/"([^"]+)"/g)) usedKeys.add(key[1]);
+  }
   for (const m of src.matchAll(/format\(\w+,\s*"([^"]+)"/g)) usedKeys.add(m[1]);
   for (const m of src.matchAll(/labelKey/g)) usedKeys.add("__dynamic__");
 }
 // keys reached through lookup tables
-for (const m of readFileSync(join(root, "src/ui/analysisView.js"), "utf8").matchAll(/"(match|level|priority|severity)[A-Za-z_]*"/g)) usedKeys.add(m[0].slice(1, -1));
+for (const m of readFileSync(join(root, "src/ui/analysisView.js"), "utf8").matchAll(/"(match|level|priority|severity|verdict)[A-Za-z_]*"/g)) usedKeys.add(m[0].slice(1, -1));
 for (const m of readFileSync(join(root, "bridge/src/models.js"), "utf8").matchAll(/labelKey: "([^"]+)"/g)) usedKeys.add(m[1]);
 const orphans = [...en].filter((k) => k !== "en" && !usedKeys.has(k));
 if (orphans.length) warn.push(`i18n keys with no visible consumer: ${orphans.join(", ")}`);

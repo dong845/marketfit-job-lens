@@ -38,6 +38,7 @@ test("the only persisted keys are the interface language and the bridge pairing"
   const sidepanel = readFileSync(join(root, "src/sidepanel/sidepanel.js"), "utf8");
   const bridge = readFileSync(join(root, "src/bridge/bridgeClient.js"), "utf8");
   assert.match(sidepanel, /const LOCALE_KEY = "marketfit\.locale\.v1"/);
+  assert.match(sidepanel, /const TIMING_KEY = "marketfit\.timing\.v1"/);
   assert.match(bridge, /const BRIDGE_STATE_KEY = "marketfit\.bridge\.v1"/);
   // The bridge state is a port and a token, never a credential the user typed.
   const pair = bridge.slice(bridge.indexOf("async pair("), bridge.indexOf("async health("));

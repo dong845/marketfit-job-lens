@@ -25,6 +25,7 @@ function validEvidence() {
   const job = { ref: "JD-001" };
   const reliability = { ref: "JD-001" };
   return {
+    recommendation: { verdict: "worth_applying", headline: "Apply after sharpening the reliability bullet.", rationale: "Python is directly evidenced; scale is not." },
     overview: { jobFocus: "The role focuses on reliable Python services.", candidatePositioning: "The resume shows relevant service work.", fitNarrative: "The cited evidence is relevant.", evidence: [resume, reliability] },
     requirements: [{ name: "Python", level: "required", match: "strong", evidence: [resume, job], explanation: "The resume names Python service work." }],
     strengths: [{ title: "Service delivery", summary: "The resume cites a result.", evidence: [{ source: "resume", quote: "improved reliability by 28%" }] }],
@@ -149,4 +150,52 @@ test("the panel treats a missing result as a failure, not a finished analysis", 
   const assign = review.indexOf("lastAgentEvidence = response.result");
   assert.ok(guard > 0, "a missing result must be rejected");
   assert.ok(guard < assign, "and rejected before it is treated as an analysis");
+});
+
+test("every Anthropic model returns the envelope, on both schema branches", async () => {
+  // Claude 5 sends output_config (structured outputs); 4.6 predates it and uses
+  // prompt-and-extract. Both must reach the panel through the same envelope.
+  for (const [model, structured, budget] of [
+    ["claude-sonnet-5", true, 24000], ["claude-opus-5", true, 24000],
+    ["claude-sonnet-4-6", false, 16000], ["claude-opus-4-6", false, 16000]
+  ]) {
+    const calls = [];
+    const client = createDirectApiClient({
+      permissionsApi: { async contains() { return true; } },
+      fetchImpl: async (url, options) => {
+        calls.push(JSON.parse(options.body));
+        return { ok: true, status: 200, async json() { return { content: [{ type: "text", text: JSON.stringify(validEvidence()) }] }; } };
+      }
+    });
+    const response = await client.runTask(apiRequest("anthropic-api", model));
+    assert.ok(response.result, `${model}: response.result must carry the analysis`);
+    assert.equal(response.provider, "anthropic-api");
+    assert.equal(calls[0].model, model);
+    assert.equal(calls[0].max_tokens, budget, `${model}: wrong output budget`);
+    assert.equal(Boolean(calls[0].output_config), structured, `${model}: wrong structured-output branch`);
+    assert.match(calls[0].url ?? "https://api.anthropic.com/v1/messages", /anthropic/);
+  }
+});
+
+test("a provider that rejects the schema is retried without it rather than failing", async () => {
+  let attempts = 0;
+  const client = createDirectApiClient({
+    permissionsApi: { async contains() { return true; } },
+    fetchImpl: async () => {
+      attempts += 1;
+      if (attempts === 1) return { ok: false, status: 400, async json() { return { error: { message: "output_config.format is not supported for this model" } }; } };
+      return { ok: true, status: 200, async json() { return { content: [{ type: "text", text: JSON.stringify(validEvidence()) }] }; } };
+    }
+  });
+  const response = await client.runTask(apiRequest("anthropic-api", "claude-sonnet-5"));
+  assert.equal(attempts, 2, "it must retry once without the structured-output config");
+  assert.ok(response.result, "and still deliver an analysis");
+});
+
+test("a truncated Anthropic reply says what to do about it", async () => {
+  const client = createDirectApiClient({
+    permissionsApi: { async contains() { return true; } },
+    fetchImpl: async () => ({ ok: true, status: 200, async json() { return { stop_reason: "max_tokens", content: [{ type: "text", text: '{"overview":' }] }; } })
+  });
+  await assert.rejects(() => client.runTask(apiRequest("anthropic-api", "claude-opus-5")), /ran out of output space/);
 });

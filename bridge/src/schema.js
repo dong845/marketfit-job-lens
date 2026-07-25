@@ -32,6 +32,22 @@ export const RESULT_LIMITS = Object.freeze({
   overviewEvidence: 6
 });
 
+/**
+ * Per-field character ceilings, used by BOTH the schema we send and the parser that
+ * validates what comes back. They were separate numbers, and the parser's were
+ * lower: text() throws above its ceiling, so a reply the schema invited was
+ * rejected on arrival and a paid analysis was lost. One table, one ceiling.
+ */
+export const FIELD_LIMITS = Object.freeze({
+  headline: 220,
+  rationale: 1200,
+  narrative: 1200,
+  name: 140,
+  question: 360,
+  shortLabel: 80,
+  prose: 900
+});
+
 const EVIDENCE_SCHEMA = Object.freeze({
   type: "object",
   additionalProperties: false,
@@ -46,25 +62,37 @@ const CITED_ITEM_SCHEMA = Object.freeze({
   additionalProperties: false,
   required: ["title", "summary", "evidence"],
   properties: {
-    title: { type: "string", minLength: 1, maxLength: 140 },
-    summary: { type: "string", minLength: 1, maxLength: 600 },
+    title: { type: "string", minLength: 1, maxLength: FIELD_LIMITS.name },
+    summary: { type: "string", minLength: 1, maxLength: FIELD_LIMITS.prose },
     evidence: { type: "array", minItems: 1, maxItems: 4, items: EVIDENCE_SCHEMA }
   }
 });
 
+export const VERDICTS = Object.freeze(["strong_fit", "worth_applying", "stretch", "weak_fit"]);
+
 export const AGENT_EVIDENCE_SCHEMA = Object.freeze({
   type: "object",
   additionalProperties: false,
-  required: ["overview", "requirements", "strengths", "gaps", "risks", "resumeTailoring", "interviewFocus", "uncertainties", "suggestedActions"],
+  required: ["recommendation", "overview", "requirements", "strengths", "gaps", "risks", "resumeTailoring", "interviewFocus", "uncertainties", "suggestedActions"],
   properties: {
+    recommendation: {
+      type: "object",
+      additionalProperties: false,
+      required: ["verdict", "headline", "rationale"],
+      properties: {
+        verdict: { type: "string", enum: ["strong_fit", "worth_applying", "stretch", "weak_fit"] },
+        headline: { type: "string", minLength: 1, maxLength: FIELD_LIMITS.headline },
+        rationale: { type: "string", minLength: 1, maxLength: FIELD_LIMITS.rationale }
+      }
+    },
     overview: {
       type: "object",
       additionalProperties: false,
       required: ["jobFocus", "candidatePositioning", "fitNarrative", "evidence"],
       properties: {
-        jobFocus: { type: "string", minLength: 1, maxLength: 650 },
-        candidatePositioning: { type: "string", minLength: 1, maxLength: 650 },
-        fitNarrative: { type: "string", minLength: 1, maxLength: 650 },
+        jobFocus: { type: "string", minLength: 1, maxLength: FIELD_LIMITS.narrative },
+        candidatePositioning: { type: "string", minLength: 1, maxLength: FIELD_LIMITS.narrative },
+        fitNarrative: { type: "string", minLength: 1, maxLength: FIELD_LIMITS.narrative },
         evidence: { type: "array", minItems: 2, maxItems: 6, items: EVIDENCE_SCHEMA }
       }
     },
@@ -76,7 +104,7 @@ export const AGENT_EVIDENCE_SCHEMA = Object.freeze({
         additionalProperties: false,
         required: ["name", "level", "match", "evidence", "explanation"],
         properties: {
-          name: { type: "string", minLength: 1, maxLength: 120 },
+          name: { type: "string", minLength: 1, maxLength: FIELD_LIMITS.name },
           level: { type: "string", enum: ["required", "preferred", "unclear"] },
           match: { type: "string", enum: ["strong", "partial", "gap", "no_evidence"] },
           evidence: {
@@ -85,7 +113,7 @@ export const AGENT_EVIDENCE_SCHEMA = Object.freeze({
             maxItems: 4,
             items: EVIDENCE_SCHEMA
           },
-          explanation: { type: "string", minLength: 1, maxLength: 500 }
+          explanation: { type: "string", minLength: 1, maxLength: FIELD_LIMITS.prose }
         }
       }
     },
@@ -96,11 +124,12 @@ export const AGENT_EVIDENCE_SCHEMA = Object.freeze({
       items: {
         type: "object",
         additionalProperties: false,
-        required: ["title", "severity", "summary", "evidence"],
+        required: ["title", "severity", "summary", "howToClose", "evidence"],
         properties: {
-          title: { type: "string", minLength: 1, maxLength: 140 },
+          title: { type: "string", minLength: 1, maxLength: FIELD_LIMITS.name },
           severity: { type: "string", enum: ["material", "moderate", "unknown"] },
-          summary: { type: "string", minLength: 1, maxLength: 600 },
+          summary: { type: "string", minLength: 1, maxLength: FIELD_LIMITS.prose },
+          howToClose: { type: "string", minLength: 1, maxLength: FIELD_LIMITS.prose },
           evidence: { type: "array", minItems: 1, maxItems: 4, items: EVIDENCE_SCHEMA }
         }
       }
@@ -113,9 +142,9 @@ export const AGENT_EVIDENCE_SCHEMA = Object.freeze({
         additionalProperties: false,
         required: ["title", "severity", "summary", "evidence"],
         properties: {
-          title: { type: "string", minLength: 1, maxLength: 140 },
+          title: { type: "string", minLength: 1, maxLength: FIELD_LIMITS.name },
           severity: { type: "string", enum: ["material", "moderate", "unknown"] },
-          summary: { type: "string", minLength: 1, maxLength: 600 },
+          summary: { type: "string", minLength: 1, maxLength: FIELD_LIMITS.prose },
           evidence: { type: "array", minItems: 1, maxItems: 4, items: EVIDENCE_SCHEMA }
         }
       }
@@ -128,8 +157,8 @@ export const AGENT_EVIDENCE_SCHEMA = Object.freeze({
         additionalProperties: false,
         required: ["target", "recommendation", "evidence"],
         properties: {
-          target: { type: "string", minLength: 1, maxLength: 140 },
-          recommendation: { type: "string", minLength: 1, maxLength: 600 },
+          target: { type: "string", minLength: 1, maxLength: FIELD_LIMITS.name },
+          recommendation: { type: "string", minLength: 1, maxLength: FIELD_LIMITS.prose },
           evidence: { type: "array", minItems: 1, maxItems: 4, items: EVIDENCE_SCHEMA }
         }
       }
@@ -142,8 +171,8 @@ export const AGENT_EVIDENCE_SCHEMA = Object.freeze({
         additionalProperties: false,
         required: ["question", "rationale", "evidence"],
         properties: {
-          question: { type: "string", minLength: 1, maxLength: 360 },
-          rationale: { type: "string", minLength: 1, maxLength: 500 },
+          question: { type: "string", minLength: 1, maxLength: FIELD_LIMITS.question },
+          rationale: { type: "string", minLength: 1, maxLength: FIELD_LIMITS.prose },
           evidence: { type: "array", minItems: 1, maxItems: 4, items: EVIDENCE_SCHEMA }
         }
       }
@@ -156,8 +185,8 @@ export const AGENT_EVIDENCE_SCHEMA = Object.freeze({
         additionalProperties: false,
         required: ["type", "message", "evidence"],
         properties: {
-          type: { type: "string", minLength: 1, maxLength: 80 },
-          message: { type: "string", minLength: 1, maxLength: 500 },
+          type: { type: "string", minLength: 1, maxLength: FIELD_LIMITS.shortLabel },
+          message: { type: "string", minLength: 1, maxLength: FIELD_LIMITS.prose },
           evidence: { type: "array", minItems: 1, maxItems: 4, items: EVIDENCE_SCHEMA }
         }
       }
@@ -170,7 +199,7 @@ export const AGENT_EVIDENCE_SCHEMA = Object.freeze({
         additionalProperties: false,
         required: ["action", "priority", "evidence"],
         properties: {
-          action: { type: "string", minLength: 1, maxLength: 500 },
+          action: { type: "string", minLength: 1, maxLength: FIELD_LIMITS.prose },
           priority: { type: "string", enum: ["now", "before_apply", "later"] },
           evidence: { type: "array", minItems: 1, maxItems: 4, items: EVIDENCE_SCHEMA }
         }
@@ -283,10 +312,14 @@ export function parseAgentEvidence(value, request) {
   const trim = (items, key) => items.slice(0, RESULT_LIMITS[key]);
 
   return {
+    // Optional at parse time even though the schema asks for it: a model that
+    // omits the verdict has still produced a usable analysis, and discarding a
+    // paid result over a missing summary line would be the wrong trade.
+    recommendation: parseRecommendation(result.recommendation),
     overview: {
-      jobFocus: text(overview.jobFocus, "overview.jobFocus", 650),
-      candidatePositioning: text(overview.candidatePositioning, "overview.candidatePositioning", 650),
-      fitNarrative: text(overview.fitNarrative, "overview.fitNarrative", 650),
+      jobFocus: text(overview.jobFocus, "overview.jobFocus", FIELD_LIMITS.narrative),
+      candidatePositioning: text(overview.candidatePositioning, "overview.candidatePositioning", FIELD_LIMITS.narrative),
+      fitNarrative: text(overview.fitNarrative, "overview.fitNarrative", FIELD_LIMITS.narrative),
       evidence: parseEvidenceList(overview.evidence, request, "overview.evidence", 6, 2)
     },
     requirements: trim(requirements, "requirements").map((item) => parseRequirement(item, request)),
@@ -298,8 +331,8 @@ export function parseAgentEvidence(value, request) {
     uncertainties: trim(uncertainties, "uncertainties").map((item) => {
       const uncertainty = object(item, "Each uncertainty must be an object.");
       return {
-        type: text(uncertainty.type, "uncertainty.type", 80),
-        message: text(uncertainty.message, "uncertainty.message", 500),
+        type: text(uncertainty.type, "uncertainty.type", FIELD_LIMITS.shortLabel),
+        message: text(uncertainty.message, "uncertainty.message", FIELD_LIMITS.prose),
         evidence: parseEvidenceList(uncertainty.evidence, request, "uncertainty.evidence", 4)
       };
     }),
@@ -331,25 +364,40 @@ export function extractJsonText(value) {
   return text;
 }
 
+function parseRecommendation(value) {
+  if (!value || typeof value !== "object") return null;
+  const verdict = typeof value.verdict === "string" ? value.verdict.trim() : "";
+  if (!VERDICTS.includes(verdict)) return null;
+  try {
+    return {
+      verdict,
+      headline: text(value.headline, "recommendation.headline", FIELD_LIMITS.headline),
+      rationale: text(value.rationale, "recommendation.rationale", FIELD_LIMITS.rationale)
+    };
+  } catch {
+    return null;
+  }
+}
+
 function parseRequirement(value, request) {
   const requirement = object(value, "Each requirement must be an object.");
   const level = text(requirement.level, "requirement.level", 20);
   const match = text(requirement.match, "requirement.match", 20);
   if (!REQUIREMENT_LEVELS.has(level) || !MATCH_STATES.has(match)) throw new BridgeError("OUTPUT_UNTRUSTED", "Provider returned an invalid requirement state.");
   return {
-    name: text(requirement.name, "requirement.name", 120),
+    name: text(requirement.name, "requirement.name", FIELD_LIMITS.name),
     level,
     match,
     evidence: parseEvidenceList(requirement.evidence, request, "requirement.evidence", 4),
-    explanation: text(requirement.explanation, "requirement.explanation", 500)
+    explanation: text(requirement.explanation, "requirement.explanation", FIELD_LIMITS.prose)
   };
 }
 
 function parseCitedItem(value, request, label) {
   const item = object(value, `Each ${label} must be an object.`);
   return {
-    title: text(item.title, `${label}.title`, 140),
-    summary: text(item.summary, `${label}.summary`, 600),
+    title: text(item.title, `${label}.title`, FIELD_LIMITS.name),
+    summary: text(item.summary, `${label}.summary`, FIELD_LIMITS.prose),
     evidence: parseEvidenceList(item.evidence, request, `${label}.evidence`, 4)
   };
 }
@@ -359,9 +407,10 @@ function parseSeverityItem(value, request, label) {
   const severity = text(item.severity, `${label}.severity`, 20);
   if (!GAP_SEVERITIES.has(severity)) throw new BridgeError("OUTPUT_UNTRUSTED", `Provider returned an invalid ${label} severity.`);
   return {
-    title: text(item.title, `${label}.title`, 140),
+    title: text(item.title, `${label}.title`, FIELD_LIMITS.name),
     severity,
-    summary: text(item.summary, `${label}.summary`, 600),
+    summary: text(item.summary, `${label}.summary`, FIELD_LIMITS.prose),
+    howToClose: optionalText(item.howToClose, `${label}.howToClose`, FIELD_LIMITS.prose),
     evidence: parseEvidenceList(item.evidence, request, `${label}.evidence`, 4)
   };
 }
@@ -369,8 +418,8 @@ function parseSeverityItem(value, request, label) {
 function parseTailoringItem(value, request) {
   const item = object(value, "Each resumeTailoring item must be an object.");
   return {
-    target: text(item.target, "resumeTailoring.target", 140),
-    recommendation: text(item.recommendation, "resumeTailoring.recommendation", 600),
+    target: text(item.target, "resumeTailoring.target", FIELD_LIMITS.name),
+    recommendation: text(item.recommendation, "resumeTailoring.recommendation", FIELD_LIMITS.prose),
     evidence: parseEvidenceList(item.evidence, request, "resumeTailoring.evidence", 4)
   };
 }
@@ -378,8 +427,8 @@ function parseTailoringItem(value, request) {
 function parseInterviewItem(value, request) {
   const item = object(value, "Each interviewFocus item must be an object.");
   return {
-    question: text(item.question, "interviewFocus.question", 360),
-    rationale: text(item.rationale, "interviewFocus.rationale", 500),
+    question: text(item.question, "interviewFocus.question", FIELD_LIMITS.question),
+    rationale: text(item.rationale, "interviewFocus.rationale", FIELD_LIMITS.prose),
     evidence: parseEvidenceList(item.evidence, request, "interviewFocus.evidence", 4)
   };
 }
@@ -389,7 +438,7 @@ function parseAction(value, request) {
   const priority = text(item.priority, "suggestedActions.priority", 30);
   if (!ACTION_PRIORITIES.has(priority)) throw new BridgeError("OUTPUT_UNTRUSTED", "Provider returned an invalid action priority.");
   return {
-    action: text(item.action, "suggestedActions.action", 500),
+    action: text(item.action, "suggestedActions.action", FIELD_LIMITS.prose),
     priority,
     evidence: parseEvidenceList(item.evidence, request, "suggestedActions.evidence", 4)
   };

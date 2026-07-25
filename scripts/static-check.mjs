@@ -23,6 +23,14 @@ for (const file of sourceFiles) {
   const source = readFileSync(file, "utf8");
   assert.equal(/\btotalScore\b|\bfitScore\b/.test(source), false, `${file} reintroduces a local scoring path.`);
 }
+// The schema invites a length the parser must accept: text() throws above its own
+// ceiling, so a lower parser limit silently rejects a reply we asked for.
+const schemaSource = readFileSync(join(root, "bridge/src/schema.js"), "utf8");
+const bareCeilings = [...schemaSource.matchAll(/maxLength: (\d+)/g)].map((match) => match[1]);
+assert.deepEqual(bareCeilings, [], `Field ceilings must come from FIELD_LIMITS, not literals: ${bareCeilings.join(", ")}`);
+const bareParserCeilings = [...schemaSource.matchAll(/text\((?:item|overview|requirement|uncertainty|value)\.\w+,\s*[^,]+,\s*(\d{3,})\)/g)].map((match) => match[1]);
+assert.deepEqual(bareParserCeilings, [], `Parser ceilings must come from FIELD_LIMITS: ${bareParserCeilings.join(", ")}`);
+
 const bridgeClientSource = readFileSync(join(root, "src/bridge/bridgeClient.js"), "utf8");
 const directApiSource = readFileSync(join(root, "src/ai/directApiClient.js"), "utf8");
 assert.match(bridgeClientSource, /http:\/\/127\.0\.0\.1/, "CLI requests must target loopback only.");
