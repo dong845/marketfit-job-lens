@@ -54,10 +54,14 @@ test("match state drives both the tag and the row accent", () => {
   assert.match(html, /<span class="tag tag-bad">Gap<\/span>/);
 });
 
-test("evidence is collapsed behind a counted disclosure", () => {
+test("source quotes are never printed, on either surface", () => {
   const html = renderAnalysisHtml(evidenceFixture(), "en");
-  assert.match(html, /<details class="evidence"><summary>Evidence \(1\)<\/summary>/);
-  assert.match(html, /Built 4D cine MRI reconstruction in PyTorch/);
+  assert.equal(html.includes("Built 4D cine MRI reconstruction in PyTorch"), false, "quotes must not be rendered");
+  assert.equal(html.includes("blockquote"), false);
+  assert.equal(html.includes("<details"), false);
+  // The analysis itself is unaffected.
+  assert.match(html, /FDA submissions/);
+  assert.match(html, /Requirements/);
 });
 
 test("an empty requirement list explains itself instead of rendering a blank card", () => {
@@ -134,11 +138,31 @@ test("a gap carries the way to close it", () => {
   assert.match(html, /Surface the verification documents you already wrote\./);
 });
 
-test("the panel omits quotes while the report expands them", () => {
-  const panel = renderAnalysisHtml(evidenceFixture(), "en", { showEvidence: false });
-  const report = renderAnalysisHtml(evidenceFixture(), "en", { showEvidence: true, evidenceOpen: true });
-  assert.equal((panel.match(/class="evidence"/g) || []).length, 0, "the panel must not repeat source text under every point");
-  assert.ok((report.match(/class="evidence" open/g) || []).length > 0, "the report keeps them, expanded");
-  // The analysis itself is unaffected by dropping the quotes.
-  assert.match(panel, /FDA submissions/);
+test("dropping the display does not drop the grounding that produced it", async () => {
+  // The model must still cite real CV-nnn / JD-nnn blocks, and every reference is
+  // resolved back to actual source text — an unresolvable one is discarded. That
+  // is what stops it inventing quotes, and it is independent of rendering them.
+  const { parseAgentEvidence, parseTaskRequest } = await import("../bridge/src/schema.js");
+  const request = parseTaskRequest({
+    requestId: "t", taskType: "analyze_job", provider: "openai-api", privacyMode: "provider_cloud",
+    credential: { type: "session_api_key", apiKey: "session-key-1234" },
+    options: { model: "gpt-5-mini", language: "en" },
+    input: { resumeText: "Built PyTorch reconstruction for clinical imaging systems.", job: { description: "PyTorch required. C++ required." }, candidate: {} }
+  });
+  const base = {
+    recommendation: { verdict: "stretch", headline: "h", rationale: "r" },
+    overview: { jobFocus: "a", candidatePositioning: "b", fitNarrative: "c", evidence: [{ ref: "CV-001" }, { ref: "JD-001" }] },
+    requirements: [{ name: "PyTorch", level: "required", match: "strong", evidence: [{ ref: "CV-001" }], explanation: "x" }],
+    strengths: [], gaps: [], risks: [], resumeTailoring: [], interviewFocus: [], uncertainties: [], suggestedActions: []
+  };
+  const real = parseAgentEvidence(base, request);
+  assert.equal(real.requirements[0].evidence[0].source, "resume");
+  assert.ok(request.input.resumeText.includes(real.requirements[0].evidence[0].quote), "a resolved ref must be literal source text");
+
+  // A reference to a block that does not exist is discarded, not trusted.
+  const invented = parseAgentEvidence({
+    ...base,
+    requirements: [{ name: "PyTorch", level: "required", match: "strong", evidence: [{ ref: "CV-999" }], explanation: "x" }]
+  }, request);
+  assert.deepEqual(invented.requirements[0].evidence, [], "an unresolvable citation must be dropped");
 });

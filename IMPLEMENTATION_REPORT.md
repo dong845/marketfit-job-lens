@@ -28,7 +28,9 @@ cannot drift.
   `tests/privacy.test.mjs`.
 - **The model cannot invent quotes.** It receives addressable `CV-nnn` / `JD-nnn`
   evidence blocks and may cite only their IDs. Refs are resolved back to real
-  blocks during validation; unresolvable ones are dropped.
+  blocks during validation; unresolvable ones are dropped. The quotes are not
+  displayed — this constraint is about what the model is allowed to assert, not
+  about what the page shows.
 - **Provider replies are untrusted.** Enum states, list sizes, and string lengths
   are re-checked after parsing, independent of whatever schema the provider was
   given.

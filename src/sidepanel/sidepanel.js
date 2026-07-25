@@ -523,7 +523,7 @@ async function runAgentReview() {
   }
 }
 
-function renderAnalysis(evidence) { fields.result.innerHTML = renderAnalysisHtml(evidence, locale, { showEvidence: false }); }
+function renderAnalysis(evidence) { fields.result.innerHTML = renderAnalysisHtml(evidence, locale); }
 
 /**
  * Reasoning models routinely take a minute or more on this prompt. Without a
@@ -632,7 +632,7 @@ function renderReportProblem(detail, url) {
     : "";
   fields.result.innerHTML =
     `<div class="empty action-message"><p><strong>${escapeHtml(t(locale, "reportFailed"))}</strong></p><p class="meta">${escapeHtml(detail)}</p>${manual}</div>`
-    + renderAnalysisHtml(lastAgentEvidence, locale, { showEvidence: false });
+    + renderAnalysisHtml(lastAgentEvidence, locale);
   setStatus(t(locale, "reportFailed"));
 }
 

@@ -105,11 +105,6 @@ code { font-size: 11px; }
 .tag-bad { background: var(--soft-danger); color: var(--danger); }
 .tag-muted { background: #eef2f4; color: var(--muted); }
 
-.evidence { margin-top: 5px; }
-.evidence > summary { color: var(--accent-strong); font-size: 11px; font-weight: 650; }
-.evidence > summary::after { font-size: 14px; }
-.evidence blockquote { border-left: 2px solid var(--accent); color: var(--muted); font-size: 11px; line-height: 1.4; margin: 6px 0 0; padding-left: 7px; }
-
 @media (max-width: 360px) { .field-grid { grid-template-columns: 1fr; }.control-row { align-items: stretch; flex-direction: column; } }
 
 /* The verdict answers "should I spend an evening on this?" before any detail. */

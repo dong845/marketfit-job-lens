@@ -41,11 +41,14 @@ test("a missing or expired report explains itself instead of rendering blank", (
   assert.match(script, /LATEST_KEY/);
 });
 
-test("report evidence is expanded, unlike the panel's collapsed disclosures", () => {
-  assert.match(script, /renderAnalysisHtml\(evidence, locale, \{ evidenceOpen: true \}\)/);
-  // The panel drops quotes entirely — they buried the analysis in a 390px column.
+test("neither surface prints source quotes", () => {
+  // Quotes are not rendered anywhere: they were long and buried the analysis.
+  // The grounding they came from is untouched — see analysisView.test.mjs.
+  assert.match(script, /renderAnalysisHtml\(evidence, locale\)/);
   const sidepanelSource = readFileSync(join(root, "src/sidepanel/sidepanel.js"), "utf8");
-  assert.match(sidepanelSource, /renderAnalysisHtml\(evidence, locale, \{ showEvidence: false \}\)/);
+  assert.match(sidepanelSource, /renderAnalysisHtml\(evidence, locale\)/);
+  const view = readFileSync(join(root, "src/ui/analysisView.js"), "utf8");
+  assert.equal(view.includes("blockquote"), false, "no quote markup may remain");
 });
 
 test("the report links out safely and stays printable", () => {

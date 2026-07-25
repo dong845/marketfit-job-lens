@@ -72,10 +72,6 @@ h1, h2, h3, h4, p { margin: 0; }
 .tag-bad { background: var(--soft-danger); color: var(--danger); }
 .tag-muted { background: #eef2f4; color: var(--muted); }
 
-.evidence { margin-top: 8px; }
-.evidence > summary { color: var(--accent-strong); cursor: pointer; font-size: 12px; font-weight: 650; }
-.evidence blockquote { border-left: 2px solid var(--accent); color: var(--muted); font-size: 12.5px; line-height: 1.5; margin: 8px 0 0; padding-left: 10px; }
-
 .report-foot { border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; line-height: 1.5; margin-top: 20px; padding-top: 14px; }
 
 @media print {
@@ -83,8 +79,6 @@ h1, h2, h3, h4, p { margin: 0; }
   .print-button { display: none; }
   .report-head, .result-card { border-color: #ddd; break-inside: avoid; }
   .requirement, .action, .finding-list li { break-inside: avoid; }
-  /* Disclosures are already open in the report; keep them open on paper too. */
-  .evidence > summary { display: none; }
 }
 
 .verdict { border-left: 5px solid var(--line); }

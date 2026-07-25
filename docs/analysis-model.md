@@ -22,7 +22,15 @@ build if one is reintroduced.
 4. **Validation** — `bridge/src/schema.js` re-validates the reply: enum states,
    list sizes, string lengths, and every evidence ref resolved back to a real
    block. An unresolvable ref is dropped rather than displayed.
-5. **Render** — `src/ui/analysisView.js` turns validated evidence into markup.
+5. **Render** — `src/ui/analysisView.js` turns validated evidence into markup:
+   the verdict, the requirement-by-requirement comparison, the gaps and how to
+   close them, and what to do next.
+
+Source quotes are **not** rendered on either surface. Step 2 is what keeps the
+model honest — it may only cite block IDs that exist, and step 4 resolves each
+one back to real text and drops the rest — and that holds whether or not the
+quotes are printed. Printing them as well put a block of source text under every
+conclusion and buried the analysis.
 
 ## Schemas
 

@@ -47,7 +47,7 @@ async function render() {
       </dl>
       <button id="printReport" class="print-button" type="button">${escapeHtml(t(locale, "reportPrint"))}</button>
     </header>
-    <section class="report-body">${renderAnalysisHtml(evidence, locale, { evidenceOpen: true })}</section>
+    <section class="report-body">${renderAnalysisHtml(evidence, locale)}</section>
     <footer class="report-foot"><p>${escapeHtml(t(locale, "aiSupplement"))}</p></footer>`;
 
   document.getElementById("printReport").addEventListener("click", () => window.print());
