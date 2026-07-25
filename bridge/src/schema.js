@@ -158,6 +158,32 @@ export const AGENT_EVIDENCE_SCHEMA = Object.freeze({
   }
 });
 
+/**
+ * Keywords both providers' strict/structured-output modes restrict. Sending them
+ * risks the request being rejected outright rather than the constraint being
+ * enforced, which would fail every analysis rather than trimming a long one.
+ *
+ * Dropping them loses nothing: parseAgentEvidence below already enforces every
+ * length and count bound at parse time, on output we do not control. The schema
+ * above stays the single source of truth for those limits — this only changes
+ * what we put on the wire.
+ */
+const UNSUPPORTED_SCHEMA_KEYWORDS = new Set([
+  "minLength", "maxLength", "pattern", "format",
+  "minItems", "maxItems", "uniqueItems",
+  "minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum", "multipleOf"
+]);
+
+export function wireSchema(schema = AGENT_EVIDENCE_SCHEMA) {
+  if (Array.isArray(schema)) return schema.map((item) => wireSchema(item));
+  if (!schema || typeof schema !== "object") return schema;
+  return Object.fromEntries(
+    Object.entries(schema)
+      .filter(([key]) => !UNSUPPORTED_SCHEMA_KEYWORDS.has(key))
+      .map(([key, value]) => [key, wireSchema(value)])
+  );
+}
+
 export class BridgeError extends Error {
   constructor(code, message, status = 400) {
     super(message);

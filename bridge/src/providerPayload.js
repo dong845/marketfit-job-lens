@@ -1,11 +1,11 @@
 import { BridgeError } from "./schema.js";
 
-export const PROVIDER_OUTPUT_TOKEN_BUDGET = 7000;
+const TRUNCATED_MESSAGE = "The AI provider ran out of output space before finishing. Try a shorter job description, or switch to another model.";
 
 export function extractOpenAiJsonPayload(payload) {
   if (payload?.status === "incomplete" || payload?.incomplete_details) {
-    const reason = payload.incomplete_details?.reason ? ` Reason: ${payload.incomplete_details.reason}.` : "";
-    throw new BridgeError("OUTPUT_TRUNCATED", `The AI provider output was truncated before JSON finished.${reason}`, 502);
+    const reason = payload.incomplete_details?.reason ? ` (${payload.incomplete_details.reason})` : "";
+    throw new BridgeError("OUTPUT_TRUNCATED", `${TRUNCATED_MESSAGE}${reason}`, 502);
   }
   const refusal = collectTextByTypes(payload, new Set(["refusal"]));
   if (refusal) throw new BridgeError("PROVIDER_REFUSED", refusal.slice(0, 500), 502);
@@ -20,7 +20,7 @@ export function extractOpenAiJsonPayload(payload) {
 
 export function extractAnthropicJsonPayload(payload) {
   if (payload?.stop_reason === "max_tokens") {
-    throw new BridgeError("OUTPUT_TRUNCATED", "The AI provider output was truncated before JSON finished.", 502);
+    throw new BridgeError("OUTPUT_TRUNCATED", TRUNCATED_MESSAGE, 502);
   }
   const refusal = String(payload?.stop_reason || "").includes("refusal") ? collectAnthropicText(payload) : "";
   if (refusal) throw new BridgeError("PROVIDER_REFUSED", refusal.slice(0, 500), 502);

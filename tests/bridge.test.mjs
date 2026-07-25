@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createBridgeServer } from "../bridge/src/server.js";
 import { createProviderRouter } from "../bridge/src/providers.js";
+import { MODELS } from "../bridge/src/models.js";
 import { BridgeError, parseAgentEvidence, parseTaskRequest } from "../bridge/src/schema.js";
 import { createBridgeClient, isApiProvider, isCliProvider } from "../src/bridge/bridgeClient.js";
 
@@ -132,7 +133,7 @@ test("OpenAI API request uses structured output and no server-side storage", asy
   assert.match(calls[0].url, /\/v1\/responses$/);
   const body = JSON.parse(calls[0].options.body);
   assert.equal(body.store, false);
-  assert.equal(body.max_output_tokens, 7000);
+  assert.equal(body.max_output_tokens, MODELS["gpt-5"].maxOutputTokens);
   assert.equal(body.text.format.type, "json_schema");
   assert.equal(calls[0].options.headers.authorization.startsWith("Bearer "), true);
 });
@@ -161,7 +162,7 @@ test("OpenAI API parser reports truncation separately from invalid JSON", async 
       }
     })
   });
-  await assert.rejects(() => router.runTask(apiRequest("openai-api")), /truncated/);
+  await assert.rejects(() => router.runTask(apiRequest("openai-api")), /ran out of output space/);
 });
 
 test("API request forwards an explicitly selected model for the current request", async () => {
@@ -191,7 +192,7 @@ test("Anthropic API request uses the configured session key only for the request
   assert.equal(result.suggestedActions.length, 1);
   assert.match(calls[0].url, /\/v1\/messages$/);
   assert.equal(calls[0].options.headers["x-api-key"], "session-test-api-key-123");
-  assert.equal(JSON.parse(calls[0].options.body).max_tokens, 7000);
+  assert.equal(JSON.parse(calls[0].options.body).max_tokens, MODELS["claude-sonnet-5"].maxOutputTokens);
 });
 
 test("Anthropic API parser accepts fenced JSON text", async () => {

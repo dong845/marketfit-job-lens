@@ -1,9 +1,17 @@
-import { AGENT_SYSTEM_POLICY, buildAnalyzePrompt, outputSchemaJson } from "../../bridge/src/prompts.js";
+import { AGENT_SYSTEM_POLICY, buildAnalyzePrompt, wireSchemaJson } from "../../bridge/src/prompts.js";
 import { parseAgentEvidence, parseJsonOutput, parseTaskRequest } from "../../bridge/src/schema.js";
-import { extractAnthropicJsonPayload, extractOpenAiJsonPayload, PROVIDER_OUTPUT_TOKEN_BUDGET } from "../../bridge/src/providerPayload.js";
+import { extractAnthropicJsonPayload, extractOpenAiJsonPayload } from "../../bridge/src/providerPayload.js";
+import { modelConfig } from "../../bridge/src/models.js";
 
 const OPENAI_URL = "https://api.openai.com/v1/responses";
 const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
+
+/**
+ * Reasoning models can spend well over a minute thinking before emitting JSON,
+ * and this path is deliberately non-streaming (one request, one parsed result).
+ * The old 90s ceiling cut off slow-but-successful analyses.
+ */
+const REQUEST_TIMEOUT_MS = 150000;
 
 export const DIRECT_PROVIDER_ORIGINS = Object.freeze({
   "openai-api": "https://api.openai.com/*",
@@ -22,12 +30,15 @@ export function createDirectApiClient({ fetchImpl = globalThis.fetch, permission
     async hasAccess(provider) {
       return hasProviderAccess(provider, permissionsApi);
     },
+    /** Must be called synchronously from a user gesture — see ensureProviderAccess. */
     async requestAccess(provider) {
       await ensureProviderAccess(provider, permissionsApi);
     },
-    async runTask(value, { accessVerified = false } = {}) {
+    async runTask(value) {
       const request = parseTaskRequest(value);
-      if (!accessVerified) await ensureProviderAccess(request.provider, permissionsApi);
+      if (!await hasProviderAccess(request.provider, permissionsApi)) {
+        throw new DirectApiError("MarketFit cannot reach this provider yet. Select the provider again to grant access.");
+      }
       if (request.provider === "openai-api") return runOpenAi(request, fetchImpl);
       if (request.provider === "anthropic-api") return runAnthropic(request, fetchImpl);
       throw new DirectApiError("Direct API access is available only for API-key providers.");
@@ -35,13 +46,17 @@ export function createDirectApiClient({ fetchImpl = globalThis.fetch, permission
   };
 }
 
+/**
+ * chrome.permissions.request() requires a live user gesture, and awaiting anything
+ * beforehand — including permissions.contains() — can consume it. So this calls
+ * request() directly with no preceding await. That costs nothing when access already
+ * exists: request() resolves true without prompting if the origin is already granted.
+ */
 async function ensureProviderAccess(provider, permissionsApi) {
   const origin = DIRECT_PROVIDER_ORIGINS[provider];
   if (!origin) throw new DirectApiError("Direct API access is available only for API-key providers.");
-  if (!permissionsApi?.contains || !permissionsApi?.request) return;
-  const request = { origins: [origin] };
-  if (await hasProviderAccess(provider, permissionsApi)) return;
-  const granted = await permissionsApi.request(request);
+  if (!permissionsApi?.request) return;
+  const granted = await permissionsApi.request({ origins: [origin] });
   if (!granted) throw new DirectApiError("Direct access to the selected AI provider was not allowed.");
 }
 
@@ -53,57 +68,62 @@ async function hasProviderAccess(provider, permissionsApi) {
 }
 
 async function runOpenAi(request, fetchImpl) {
-  const response = await fetchWithTimeout(fetchImpl, OPENAI_URL, {
-    method: "POST",
+  const model = modelConfig("openai-api", request.options.model);
+  const payload = await postJson(fetchImpl, OPENAI_URL, {
     headers: { "content-type": "application/json", authorization: `Bearer ${request.credential.apiKey}` },
-    body: JSON.stringify({
-      model: request.options.model || "gpt-5-mini",
+    body: {
+      model: model.id,
       store: false,
-      max_output_tokens: PROVIDER_OUTPUT_TOKEN_BUDGET,
+      max_output_tokens: model.maxOutputTokens,
       instructions: AGENT_SYSTEM_POLICY,
       input: buildAnalyzePrompt(request),
-      text: { format: { type: "json_schema", name: "marketfit_agent_evidence", strict: true, schema: JSON.parse(outputSchemaJson()) } }
-    })
+      text: { format: { type: "json_schema", name: "marketfit_agent_evidence", strict: true, schema: JSON.parse(wireSchemaJson()) } }
+    },
+    withoutStructuredOutput: ({ text, ...body }) => body
   });
-  const payload = await jsonResponse(response);
-  const output = extractOpenAiJsonPayload(payload);
-  return parseAgentEvidence(parseJsonOutput(output), request);
+  return parseAgentEvidence(parseJsonOutput(extractOpenAiJsonPayload(payload)), request);
 }
 
 async function runAnthropic(request, fetchImpl) {
-  const response = await fetchWithTimeout(fetchImpl, ANTHROPIC_URL, {
-    method: "POST",
+  const model = modelConfig("anthropic-api", request.options.model);
+  const outputConfig = model.structuredOutputs
+    ? { format: { type: "json_schema", schema: JSON.parse(wireSchemaJson()) }, ...(model.effort ? { effort: model.effort } : {}) }
+    : null;
+  const payload = await postJson(fetchImpl, ANTHROPIC_URL, {
     headers: {
       "content-type": "application/json",
       "x-api-key": request.credential.apiKey,
       "anthropic-version": "2023-06-01"
     },
-    body: JSON.stringify({
-      model: request.options.model || "claude-sonnet-4-6",
-      max_tokens: PROVIDER_OUTPUT_TOKEN_BUDGET,
+    body: {
+      model: model.id,
+      max_tokens: model.maxOutputTokens,
       system: AGENT_SYSTEM_POLICY,
-      messages: [{ role: "user", content: buildAnalyzePrompt(request) }]
-    })
+      messages: [{ role: "user", content: buildAnalyzePrompt(request) }],
+      ...(outputConfig ? { output_config: outputConfig } : {})
+    },
+    withoutStructuredOutput: ({ output_config: _dropped, ...body }) => body
   });
-  const payload = await jsonResponse(response);
-  const output = extractAnthropicJsonPayload(payload);
-  return parseAgentEvidence(parseJsonOutput(output), request);
+  return parseAgentEvidence(parseJsonOutput(extractAnthropicJsonPayload(payload)), request);
 }
 
-async function fetchWithTimeout(fetchImpl, url, options) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 90000);
+/**
+ * Posts JSON and, if the provider rejects the structured-output configuration,
+ * retries once without it. Structured outputs are an accuracy optimisation, so a
+ * provider that will not accept our schema should degrade to prompt-only JSON
+ * rather than making the analysis unusable.
+ */
+async function postJson(fetchImpl, url, { headers, body, withoutStructuredOutput }) {
   try {
-    return await fetchImpl(url, { ...options, signal: controller.signal });
+    return await sendJson(fetchImpl, url, headers, body);
   } catch (error) {
-    if (controller.signal.aborted) throw new DirectApiError("The selected AI provider did not finish in time.");
-    throw new DirectApiError("The selected AI provider could not be reached.");
-  } finally {
-    clearTimeout(timer);
+    if (!(error instanceof StructuredOutputRejected)) throw error;
+    return sendJson(fetchImpl, url, headers, withoutStructuredOutput(body));
   }
 }
 
-async function jsonResponse(response) {
+async function sendJson(fetchImpl, url, headers, body) {
+  const response = await fetchWithTimeout(fetchImpl, url, { method: "POST", headers, body: JSON.stringify(body) });
   let payload;
   try {
     payload = await response.json();
@@ -112,7 +132,23 @@ async function jsonResponse(response) {
   }
   if (!response.ok) {
     const message = String(payload?.error?.message || payload?.message || "The selected AI provider rejected the request.").slice(0, 500);
+    if (response.status === 400 && /schema|output_config|json_schema|format/i.test(message)) throw new StructuredOutputRejected(message);
     throw new DirectApiError(message);
   }
   return payload;
+}
+
+class StructuredOutputRejected extends Error {}
+
+async function fetchWithTimeout(fetchImpl, url, options) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    return await fetchImpl(url, { ...options, signal: controller.signal });
+  } catch (error) {
+    if (controller.signal.aborted) throw new DirectApiError("The selected AI provider did not finish in time. Try a faster model, or shorten the job description.");
+    throw new DirectApiError("The selected AI provider could not be reached.");
+  } finally {
+    clearTimeout(timer);
+  }
 }

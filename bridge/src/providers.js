@@ -1,9 +1,10 @@
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { buildAnalyzePrompt, buildClaudeInstruction, AGENT_SYSTEM_POLICY, outputSchemaJson } from "./prompts.js";
+import { buildAnalyzePrompt, buildClaudeInstruction, AGENT_SYSTEM_POLICY, outputSchemaJson, wireSchemaJson } from "./prompts.js";
 import { BridgeError, parseAgentEvidence, parseJsonOutput } from "./schema.js";
-import { extractAnthropicJsonPayload, extractOpenAiJsonPayload, PROVIDER_OUTPUT_TOKEN_BUDGET } from "./providerPayload.js";
+import { extractAnthropicJsonPayload, extractOpenAiJsonPayload } from "./providerPayload.js";
+import { modelConfig } from "./models.js";
 import { runProcess } from "./process.js";
 
 const OPENAI_URL = "https://api.openai.com/v1/responses";
@@ -60,16 +61,17 @@ async function runClaude(request, runProcessImpl) {
 }
 
 async function runOpenAi(request, fetchImpl) {
+  const model = modelConfig("openai-api", request.options.model);
   const response = await fetchWithTimeout(fetchImpl, OPENAI_URL, {
     method: "POST",
     headers: { "content-type": "application/json", authorization: `Bearer ${request.credential.apiKey}` },
     body: JSON.stringify({
-      model: request.options.model || "gpt-5-mini",
+      model: model.id,
       store: false,
-      max_output_tokens: PROVIDER_OUTPUT_TOKEN_BUDGET,
+      max_output_tokens: model.maxOutputTokens,
       instructions: AGENT_SYSTEM_POLICY,
       input: buildAnalyzePrompt(request),
-      text: { format: { type: "json_schema", name: "marketfit_agent_evidence", strict: true, schema: JSON.parse(outputSchemaJson()) } }
+      text: { format: { type: "json_schema", name: "marketfit_agent_evidence", strict: true, schema: JSON.parse(wireSchemaJson()) } }
     })
   });
   const payload = await jsonResponse(response);
@@ -78,6 +80,10 @@ async function runOpenAi(request, fetchImpl) {
 }
 
 async function runAnthropic(request, fetchImpl) {
+  const model = modelConfig("anthropic-api", request.options.model);
+  const outputConfig = model.structuredOutputs
+    ? { format: { type: "json_schema", schema: JSON.parse(wireSchemaJson()) }, ...(model.effort ? { effort: model.effort } : {}) }
+    : null;
   const response = await fetchWithTimeout(fetchImpl, ANTHROPIC_URL, {
     method: "POST",
     headers: {
@@ -86,10 +92,11 @@ async function runAnthropic(request, fetchImpl) {
       "anthropic-version": "2023-06-01"
     },
     body: JSON.stringify({
-      model: request.options.model || "claude-sonnet-4-6",
-      max_tokens: PROVIDER_OUTPUT_TOKEN_BUDGET,
+      model: model.id,
+      max_tokens: model.maxOutputTokens,
       system: AGENT_SYSTEM_POLICY,
-      messages: [{ role: "user", content: buildAnalyzePrompt(request) }]
+      messages: [{ role: "user", content: buildAnalyzePrompt(request) }],
+      ...(outputConfig ? { output_config: outputConfig } : {})
     })
   });
   const payload = await jsonResponse(response);

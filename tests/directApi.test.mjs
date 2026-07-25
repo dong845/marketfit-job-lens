@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createDirectApiClient, DIRECT_PROVIDER_ORIGINS } from "../src/ai/directApiClient.js";
+import { MODELS } from "../bridge/src/models.js";
 
 function apiRequest(provider = "openai-api", model = "gpt-5") {
   return {
@@ -35,12 +36,30 @@ function validEvidence() {
   };
 }
 
+test("granting provider access never awaits anything before requesting it", async () => {
+  // chrome.permissions.request() must run inside the user gesture that triggered it.
+  // Awaiting permissions.contains() first can consume that gesture, so requestAccess
+  // must reach request() as its first await — request() already resolves true without
+  // prompting when the origin is granted, which is what the pre-check was for.
+  const permissionCalls = [];
+  const client = createDirectApiClient({
+    permissionsApi: {
+      async contains(request) { permissionCalls.push(["contains", request]); return false; },
+      async request(request) { permissionCalls.push(["request", request]); return true; }
+    },
+    fetchImpl: async () => { throw new Error("must not fetch"); }
+  });
+
+  await client.requestAccess("openai-api");
+  assert.deepEqual(permissionCalls, [["request", { origins: [DIRECT_PROVIDER_ORIGINS["openai-api"]] }]]);
+});
+
 test("direct OpenAI API flow requests only its API host and keeps the key request-only", async () => {
   const permissionCalls = [];
   const calls = [];
   const client = createDirectApiClient({
     permissionsApi: {
-      async contains(request) { permissionCalls.push(["contains", request]); return false; },
+      async contains(request) { permissionCalls.push(["contains", request]); return true; },
       async request(request) { permissionCalls.push(["request", request]); return true; }
     },
     fetchImpl: async (url, options) => {
@@ -51,17 +70,16 @@ test("direct OpenAI API flow requests only its API host and keeps the key reques
 
   const result = await client.runTask(apiRequest());
   assert.equal(result.requirements[0].name, "Python");
-  assert.deepEqual(permissionCalls, [
-    ["contains", { origins: [DIRECT_PROVIDER_ORIGINS["openai-api"]] }],
-    ["request", { origins: [DIRECT_PROVIDER_ORIGINS["openai-api"]] }]
-  ]);
+  // runTask verifies access but must never prompt: by the time it runs, the gesture
+  // is long gone (job capture has already awaited).
+  assert.deepEqual(permissionCalls, [["contains", { origins: [DIRECT_PROVIDER_ORIGINS["openai-api"]] }]]);
   assert.equal(calls.length, 1);
   assert.match(calls[0].url, /https:\/\/api\.openai\.com\/v1\/responses$/);
   assert.equal(calls[0].options.headers.authorization, "Bearer session-test-api-key-123");
   const body = JSON.parse(calls[0].options.body);
   assert.equal(body.model, "gpt-5");
   assert.equal(body.store, false);
-  assert.equal(body.max_output_tokens, 7000);
+  assert.equal(body.max_output_tokens, MODELS["gpt-5"].maxOutputTokens);
   assert.equal(JSON.stringify(body).includes("session-test-api-key-123"), false);
 });
 

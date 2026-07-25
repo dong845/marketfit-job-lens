@@ -1,21 +1,34 @@
 const MAX_BLOCK_CHARS = 900;
 const MAX_BLOCKS_PER_SOURCE = 80;
 
+/**
+ * Chunking the CV and job description is pure with respect to the request, but a
+ * single response can carry ~200 evidence references and each one resolves through
+ * this bundle. Rebuilding per reference meant re-chunking up to 120K characters
+ * hundreds of times on the side panel's main thread, so the result is cached
+ * against the request identity that produced it.
+ */
+const bundleCache = new WeakMap();
+
 export function buildEvidenceBlockBundle(request) {
+  const cached = bundleCache.get(request);
+  if (cached) return cached;
+
   const resume = buildEvidenceBlocks(request.input.resumeText, "CV", "resume");
   const job = buildEvidenceBlocks(request.input.job.description, "JD", "job");
   const all = [...resume, ...job];
-  return {
+  const bundle = {
     resume,
     job,
     all,
     byId: new Map(all.map((block) => [block.id, block]))
   };
+  bundleCache.set(request, bundle);
+  return bundle;
 }
 
 export function resolveEvidenceRef(ref, request) {
-  const bundle = buildEvidenceBlockBundle(request);
-  return bundle.byId.get(String(ref || "").trim()) || null;
+  return buildEvidenceBlockBundle(request).byId.get(String(ref || "").trim()) || null;
 }
 
 function buildEvidenceBlocks(text, prefix, source) {

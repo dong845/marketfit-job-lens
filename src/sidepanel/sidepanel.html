@@ -16,7 +16,7 @@
       <section class="notice" id="temporaryNotice"></section>
 
       <section class="panel" aria-labelledby="profileTitle">
-        <div class="panel-head"><h2 id="profileTitle" data-i18n="profile">Your profile</h2><button id="clearSession" class="quiet icon-command" type="button" aria-label="Clear local session" title="Clear local session">&#10005;</button></div>
+        <div class="panel-head"><h2 id="profileTitle" data-i18n="profile">Your profile</h2><button id="clearSession" class="quiet icon-command" type="button" data-i18n-title="clearSession">&#10005;</button></div>
         <div class="panel-body">
           <label><span data-i18n="resumePdf">CV PDF</span><input id="cvPdf" type="file" accept="application/pdf,.pdf" /></label>
           <p id="cvFileStatus" class="file-status"></p>
@@ -29,13 +29,13 @@
       </section>
 
       <section id="currentJobSummary" class="job-summary" hidden>
-        <div class="summary-row"><h2 data-i18n="currentJob">Current job</h2><div class="summary-actions"><button id="refreshJobCapture" class="quiet icon-command" type="button" data-i18n-title="refreshJob" aria-label="Re-read job page" title="Re-read job page">&#8635;</button><button id="editJob" class="quiet icon-command" type="button" data-i18n-title="editJob" aria-label="Edit job text" title="Edit job text">&#9998;</button></div></div>
+        <div class="summary-row"><h2 data-i18n="currentJob">Current job</h2><div class="summary-actions"><button id="refreshJobCapture" class="quiet icon-command" type="button" data-i18n-title="refreshJob">&#8635;</button><button id="editJob" class="quiet icon-command" type="button" data-i18n-title="editJob">&#9998;</button></div></div>
         <p id="currentJobMeta" class="meta"></p>
         <p id="currentJobQuality" class="meta"></p>
       </section>
 
       <section id="jobEditorPanel" class="panel" hidden>
-        <div class="panel-head"><h2 data-i18n="editJob">Edit job text</h2><button id="cancelJobEdit" class="quiet icon-command" type="button" aria-label="Close" title="Close">&#10005;</button></div>
+        <div class="panel-head"><h2 data-i18n="editJob">Edit job text</h2><button id="cancelJobEdit" class="quiet icon-command" type="button" data-i18n-title="close">&#10005;</button></div>
         <div class="panel-body">
           <label><span data-i18n="jobTitle">Job title</span><input id="jobTitleInput" type="text" /></label>
           <div class="field-grid">
@@ -48,35 +48,68 @@
       </section>
 
       <details class="panel" id="agentPanel" open>
-        <summary data-i18n="agentHeading">AI evidence enhancement</summary>
+        <summary data-i18n="agentHeading">AI job analysis</summary>
         <div class="panel-body">
-          <p class="help" data-i18n="agentExplain">Optional. AI reads the full PDF-derived CV and current job page, then produces a cited analysis.</p>
-          <label><span data-i18n="provider">AI provider</span><select id="agentProvider"><option value="" data-i18n="chooseProvider">Choose a provider</option><option value="codex" data-i18n="codex">Codex CLI</option><option value="claude-code" data-i18n="claudeCode">Claude Code</option><option value="openai-api" data-i18n="openaiApi">OpenAI API key</option><option value="anthropic-api" data-i18n="anthropicApi">Anthropic API key</option></select></label>
-          <div id="cliBridgeMode" class="provider-mode" hidden><p class="help" data-i18n="cliBridgeHelp">Codex CLI and Claude Code use the existing local login, so pair the Local AI Bridge below.</p></div>
+          <p class="help" data-i18n="agentExplain">AI reads the full PDF-derived CV and current job page, then produces a cited analysis.</p>
+          <label><span data-i18n="provider">AI provider</span>
+            <select id="agentProvider">
+              <option value="" data-i18n="chooseProvider">Choose a provider</option>
+              <optgroup id="cliProviderGroup" label="Free">
+                <option value="codex" data-i18n="codex">Codex CLI</option>
+                <option value="claude-code" data-i18n="claudeCode">Claude Code</option>
+              </optgroup>
+              <optgroup id="apiProviderGroup" label="API key">
+                <option value="openai-api" data-i18n="openaiApi">OpenAI API key</option>
+                <option value="anthropic-api" data-i18n="anthropicApi">Anthropic API key</option>
+              </optgroup>
+            </select>
+          </label>
+
+          <div id="cliBridgeMode" class="provider-mode" hidden>
+            <p class="help" data-i18n="cliBridgeHelp">Codex CLI and Claude Code use the login you already have on this machine.</p>
+            <div id="bridgeSetup" class="bridge-setup">
+              <h3 data-i18n="bridgeSetupTitle">One-time setup</h3>
+              <p class="help" data-i18n="bridgeSetupIntro">Run this in a terminal, inside the MarketFit folder.</p>
+              <div class="command-row">
+                <code id="bridgeCommand">npm run bridge -- --port 8765</code>
+                <button id="copyBridgeCommand" class="quiet" type="button" data-i18n="copyCommand">Copy</button>
+              </div>
+              <p class="help subtle" data-i18n="bridgeSetupNote">Keep that terminal open while you use MarketFit.</p>
+            </div>
+            <p id="bridgeState" class="agent-state"></p>
+            <div class="field-grid">
+              <label><span data-i18n="bridgePort">Bridge port</span><input id="bridgePort" type="number" min="1024" max="65535" inputmode="numeric" value="8765" /></label>
+              <label><span data-i18n="pairingCode">One-time pairing code</span><input id="pairingCode" type="password" autocomplete="off" /></label>
+            </div>
+            <div class="control-row"><button id="pairBridge" class="secondary" type="button" data-i18n="pairBridge">Pair bridge</button><button id="refreshBridge" class="quiet" type="button" data-i18n="refreshStatus">Refresh status</button><button id="disconnectBridge" class="quiet" type="button" data-i18n="disconnect">Disconnect</button></div>
+          </div>
+
           <div id="apiProviderMode" class="provider-mode" hidden>
             <label><span data-i18n="sessionApiKey">Session API key</span><input id="apiKey" type="password" autocomplete="off" /></label>
             <label><span data-i18n="apiModel">Model</span><select id="apiModel"></select></label>
-            <p class="help" data-i18n="apiDirectHelp">The session key remains only in this open panel. MarketFit asks before directly connecting to this provider, does not use a local Bridge, and never saves the key.</p>
+            <p class="help" data-i18n="apiDirectHelp">The session key remains only in this open panel.</p>
+            <div id="accessRetryRow" class="control-row" hidden><button id="retryProviderAccess" class="secondary" type="button" data-i18n="retryAccess">Allow provider access</button></div>
           </div>
-          <details id="bridgeConnection" class="bridge-connection" hidden>
-            <summary data-i18n="bridgeConnection">Local AI Bridge connection</summary>
-            <div class="panel-body bridge-body">
-              <p id="bridgeState" class="agent-state"></p>
-              <div class="field-grid">
-                <label><span data-i18n="bridgePort">Bridge port</span><input id="bridgePort" type="number" min="1024" max="65535" inputmode="numeric" /></label>
-                <label><span data-i18n="pairingCode">One-time pairing code</span><input id="pairingCode" type="password" autocomplete="off" /></label>
-              </div>
-              <div class="control-row"><button id="pairBridge" class="secondary" type="button" data-i18n="pairBridge">Pair bridge</button><button id="refreshBridge" class="quiet" type="button" data-i18n="refreshStatus">Refresh status</button><button id="disconnectBridge" class="quiet" type="button" data-i18n="disconnect">Disconnect</button></div>
-            </div>
-          </details>
-          <p class="help" data-i18n="agentPrivacy">CLI providers use the paired local Bridge. API-key providers connect directly to their selected provider only after you run an analysis. API keys are never saved.</p>
+
+          <p class="help" data-i18n="agentPrivacy">CLI providers use the paired local Bridge. API-key providers connect directly to their selected provider only after you run an analysis.</p>
           <button id="runAgentReview" class="primary analyze-command" type="button" data-i18n="runAiReview">Analyze current job with AI</button>
         </div>
       </details>
 
       <details class="panel privacy-panel">
         <summary data-i18n="privacy">Privacy and permissions</summary>
-        <div class="panel-body"><p class="help" data-i18n="privacyExplain">Default PDF parsing and page capture stay local. AI transfer occurs only after you explicitly run it.</p><button id="previewRedaction" class="quiet" type="button" data-i18n="previewPayload">Preview optional AI payload</button><pre id="redactionPreview" class="redaction-preview" hidden></pre><ul class="permission-list"><li><code>activeTab</code>: capture the current visible page after a click.</li><li><code>scripting</code>: run that one-time visible-page extractor.</li><li><code>storage</code>: save interface language and, for CLI providers only, the paired local Bridge token; PDF files and API keys are never stored.</li><li><code>sidePanel</code>: show this workspace.</li><li data-i18n="extensionPermission">CLI providers use the paired local Bridge. API-key providers request direct access only to their selected API domain when you run an analysis.</li></ul></div>
+        <div class="panel-body">
+          <p class="help" data-i18n="privacyExplain">Default PDF parsing and page capture stay local.</p>
+          <button id="previewRedaction" class="quiet" type="button" data-i18n="previewPayload">Preview optional AI payload</button>
+          <pre id="redactionPreview" class="redaction-preview" hidden></pre>
+          <ul class="permission-list">
+            <li><code>activeTab</code>: <span data-i18n="permActiveTab">capture the current visible page after a click.</span></li>
+            <li><code>scripting</code>: <span data-i18n="permScripting">run that one-time visible-page extractor.</span></li>
+            <li><code>storage</code>: <span data-i18n="permStorage">save interface language and the paired local Bridge token.</span></li>
+            <li><code>sidePanel</code>: <span data-i18n="permSidePanel">show this workspace.</span></li>
+            <li data-i18n="extensionPermission">CLI providers use the paired local Bridge.</li>
+          </ul>
+        </div>
       </details>
 
       <section id="result" class="result" aria-live="polite"></section>

@@ -1,4 +1,4 @@
-import { AGENT_EVIDENCE_SCHEMA } from "./schema.js";
+import { AGENT_EVIDENCE_SCHEMA, wireSchema } from "./schema.js";
 import { buildEvidenceBlockBundle } from "./evidenceBlocks.js";
 
 export const AGENT_SYSTEM_POLICY = [
@@ -47,6 +47,12 @@ export function buildClaudeInstruction() {
   return "Read the untrusted request JSON from stdin and return only the validated evidence JSON described by the schema.";
 }
 
+/** Full schema, constraints included — for CLI providers, which accept them. */
 export function outputSchemaJson() {
   return JSON.stringify(AGENT_EVIDENCE_SCHEMA);
+}
+
+/** Constraint-stripped schema for provider strict/structured-output modes. */
+export function wireSchemaJson() {
+  return JSON.stringify(wireSchema());
 }
