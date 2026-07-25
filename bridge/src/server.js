@@ -3,6 +3,7 @@ import { randomBytes, timingSafeEqual } from "node:crypto";
 import { createProviderRouter } from "./providers.js";
 import { BridgeError, parseTaskRequest } from "./schema.js";
 import { createMemoryStore } from "./state.js";
+import { BRIDGE_VERSION } from "./version.js";
 
 const MAX_BODY_BYTES = 256 * 1024;
 const EXTENSION_ORIGIN = /^chrome-extension:\/\/[a-p]{32}$/;
@@ -101,12 +102,12 @@ export function createBridgeServer({
       pairingAvailable = false;
       await persist();
       logger({ event: "paired", origin: origin || "extension-origin-unavailable" });
-      return writeJson(response, 200, { bridgeVersion: "0.3.1", token }, origin);
+      return writeJson(response, 200, { bridgeVersion: BRIDGE_VERSION, token }, origin);
     }
     if (!isPairedExtensionRequest(request, origin)) throw new BridgeError("ORIGIN_DENIED", "This bridge only accepts the paired Chrome extension.", 403);
     if (!hasToken(request.headers.authorization, token)) throw new BridgeError("AUTH_REQUIRED", "Bridge authentication is required.", 401);
     if (request.method === "GET" && path === "/v1/health") {
-      return writeJson(response, 200, { status: "ready", providers: await router.health() }, origin);
+      return writeJson(response, 200, { status: "ready", version: BRIDGE_VERSION, providers: await router.health() }, origin);
     }
     if (request.method === "POST" && path === "/v1/tasks") {
       const startedAt = Date.now();

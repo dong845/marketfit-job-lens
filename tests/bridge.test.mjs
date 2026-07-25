@@ -494,3 +494,29 @@ test("the CLI runs with the user's environment, which is what holds its login", 
   assert.match(process_, /shell: false/);
   assert.match(process_, /MAX_OUTPUT_BYTES/);
 });
+
+test("the bridge reports its version so a stale process can be spotted", async () => {
+  // A running bridge keeps the code it loaded at startup. Without this, a fix
+  // could be committed and the user would still hit the old failure with no way
+  // to tell why — which is exactly what happened with the CLI environment fix.
+  const store = createMemoryStore();
+  const id = "d".repeat(32);
+  const origin = `chrome-extension://${id}`;
+  const bridge = createBridgeServer({ port: 0, store, router: { async health() { return {}; }, async runTask() { return {}; } } });
+  const info = await bridge.start();
+  const { token } = await (await fetch(`http://127.0.0.1:${info.port}/v1/pair`, {
+    method: "POST", headers: { "content-type": "application/json", origin },
+    body: JSON.stringify({ code: info.pairCode, extensionId: id })
+  })).json();
+
+  const health = await (await fetch(`http://127.0.0.1:${info.port}/v1/health`, { headers: { origin, authorization: `Bearer ${token}` } })).json();
+  const { version } = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
+  assert.equal(health.version, version, "health must report the bridge's own version");
+  await bridge.stop();
+});
+
+test("the panel warns when the running bridge is older than the extension", () => {
+  const sidepanel = readFileSync(new URL("../src/sidepanel/sidepanel.js", import.meta.url), "utf8");
+  assert.match(sidepanel, /health\?\.version && running && health\.version !== running/);
+  assert.match(sidepanel, /bridgeOutdated/);
+});

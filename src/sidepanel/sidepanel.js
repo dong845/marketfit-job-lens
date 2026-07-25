@@ -352,7 +352,12 @@ async function refreshBridgeState(announce) {
     const health = await bridgeClient.health();
     const providers = health?.providers || {};
     const available = Object.entries(providers).filter(([, provider]) => provider.available).map(([name]) => name).join(", ") || t(locale, "unknown");
-    setBridgeState(format(locale, "paired", { port: state.port, providers: available }));
+    // A bridge started before the last code change keeps running the old code, so
+    // fixes appear not to work and old errors keep reproducing.
+    const running = chrome.runtime.getManifest?.()?.version;
+    setBridgeState(health?.version && running && health.version !== running
+      ? format(locale, "bridgeOutdated", { running: health.version, expected: running })
+      : format(locale, "paired", { port: state.port, providers: available }));
     markCliAvailability(providers);
     if (announce) setStatus(t(locale, "refreshStatus"));
   } catch (error) {
