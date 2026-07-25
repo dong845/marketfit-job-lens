@@ -477,7 +477,12 @@ async function runAgentReview() {
       renderJobNeedsConfirmation(job);
       return;
     }
+    // Retract the previous run's report before starting: if this run fails, a
+    // visible button offering a report for a result no longer on screen is worse
+    // than no button.
     lastAgentEvidence = null;
+    lastRunContext = null;
+    fields.reportRow.hidden = true;
     const task = {
       requestId: globalThis.crypto?.randomUUID?.() || `marketfit-${Date.now()}`, taskType: "analyze_job", provider, privacyMode: "provider_cloud",
       ...(isApiProvider(provider) ? { credential: { type: "session_api_key", apiKey } } : {}),
@@ -498,7 +503,7 @@ async function runAgentReview() {
     fields.reportRow.hidden = false;
     setStatus(format(locale, "aiFinished", { provider }));
   } catch (error) {
-    const message = error.message || t(locale, "pdfFailed");
+    const message = error.message || t(locale, "analysisFailed");
     setStatus(message);
     renderActionMessage(message);
   } finally {
@@ -515,7 +520,7 @@ function renderAnalysis(evidence) { fields.result.innerHTML = renderAnalysisHtml
  */
 function startElapsedTimer(model) {
   const startedAt = Date.now();
-  const tick = () => setStatus(format(locale, "analysing", { provider: model, seconds: Math.round((Date.now() - startedAt) / 1000) }));
+  const tick = () => setStatus(format(locale, "analysing", { model, seconds: Math.round((Date.now() - startedAt) / 1000) }));
   tick();
   const handle = setInterval(tick, 1000);
   return () => clearInterval(handle);
@@ -558,7 +563,7 @@ async function openFullReport() {
 async function pruneOldReports(session) {
   try {
     const stored = await session.get(null);
-    const stale = expiredReportKeys(Object.keys(stored || {}));
+    const stale = expiredReportKeys(stored || {});
     if (stale.length) await session.remove(stale);
   } catch {
     // Housekeeping only — never block opening the report the user asked for.

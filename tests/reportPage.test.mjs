@@ -28,8 +28,11 @@ test("the report ids the panel writes are unguessable per analysis", () => {
 });
 
 test("a missing or expired report explains itself instead of rendering blank", () => {
-  assert.match(script, /has expired/);
-  assert.match(script, /could not be read from browser storage/);
+  assert.match(script, /t\(uiLocale, "reportExpired"\)/);
+  assert.match(script, /t\(uiLocale, "reportUnreadable"\)/);
+  // These are shown before any payload exists, so the language has to come from
+  // the saved preference rather than from the report itself.
+  assert.match(script, /async function savedLocale/);
   // A link without a usable id falls back to the most recent report rather than
   // dead-ending, since the id only travels in a query string.
   assert.match(script, /async function loadPayload/);
@@ -63,4 +66,20 @@ test("the report page loads its own script and stylesheet by relative path", () 
   assert.match(html, /<link rel="stylesheet" href="\.\/report\.css" \/>/);
   assert.match(html, /<script type="module" src="\.\/report\.js"><\/script>/);
   assert.match(html, /id="report"/);
+});
+
+test("only http(s) job URLs become links", () => {
+  // job.url comes from a captured page; a javascript: value must never become an href.
+  assert.match(script, /parsed\.protocol !== "http:" && parsed\.protocol !== "https:"/);
+  assert.match(script, /catch \{ return escapeHtml\(url\); \}/);
+});
+
+test("a failed re-run retracts the previous run's report offer", () => {
+  const sidepanel = readFileSync(join(root, "src/sidepanel/sidepanel.js"), "utf8");
+  const review = sidepanel.slice(sidepanel.indexOf("async function runAgentReview"), sidepanel.indexOf("function renderAnalysis"));
+  const cleared = review.indexOf("fields.reportRow.hidden = true");
+  const shown = review.indexOf("fields.reportRow.hidden = false");
+  assert.ok(cleared > 0, "a new run must retract the previous report offer");
+  assert.ok(cleared < shown, "it must be retracted before the run, not after it succeeds");
+  assert.match(review, /lastRunContext = null;/);
 });

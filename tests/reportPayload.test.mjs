@@ -56,14 +56,34 @@ test("both ends agree on the storage keys", () => {
 });
 
 test("old reports are pruned but the newest and the latest pointer survive", () => {
-  const keys = [...Array(KEEP_REPORTS + 3)].map((_, i) => reportKey(`r${i}`)).concat([LATEST_KEY, "marketfit.locale.v1"]);
-  const stale = expiredReportKeys(keys);
-  assert.equal(stale.length, 3);
+  const stored = { [LATEST_KEY]: "r12", "marketfit.locale.v1": "en" };
+  for (let i = 0; i < KEEP_REPORTS + 3; i += 1) {
+    stored[reportKey(`r${i}`)] = { generatedAt: new Date(Date.UTC(2026, 0, 1, 0, i)).toISOString() };
+  }
+  const stale = expiredReportKeys(stored);
   assert.deepEqual(stale, [reportKey("r0"), reportKey("r1"), reportKey("r2")]);
   assert.equal(stale.includes(LATEST_KEY), false);
   assert.equal(stale.includes("marketfit.locale.v1"), false);
 });
 
+test("pruning follows recorded time, not the order storage happens to return", () => {
+  // chrome.storage returns a plain object and guarantees no iteration order, so
+  // key order must never decide what gets deleted.
+  const stored = {};
+  const newest = new Date(Date.UTC(2026, 5, 1)).toISOString();
+  const oldest = new Date(Date.UTC(2020, 0, 1)).toISOString();
+  stored[reportKey("written-first-but-newest")] = { generatedAt: newest };
+  // One over the cap in total, so exactly one report should be dropped.
+  for (let i = 0; i < KEEP_REPORTS - 1; i += 1) {
+    stored[reportKey(`mid${i}`)] = { generatedAt: new Date(Date.UTC(2026, 0, 1, 0, i)).toISOString() };
+  }
+  stored[reportKey("written-last-but-oldest")] = { generatedAt: oldest };
+
+  const stale = expiredReportKeys(stored);
+  assert.deepEqual(stale, [reportKey("written-last-but-oldest")]);
+  assert.equal(stale.includes(reportKey("written-first-but-newest")), false);
+});
+
 test("nothing is pruned while under the retention count", () => {
-  assert.deepEqual(expiredReportKeys([reportKey("a"), reportKey("b"), LATEST_KEY]), []);
+  assert.deepEqual(expiredReportKeys({ [reportKey("a")]: { generatedAt: "" }, [reportKey("b")]: {}, [LATEST_KEY]: "a" }), []);
 });

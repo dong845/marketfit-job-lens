@@ -41,8 +41,17 @@ export function reportKey(id) {
   return REPORT_PREFIX + id;
 }
 
-/** Keys for reports beyond the newest KEEP_REPORTS, oldest first. */
-export function expiredReportKeys(storedKeys, keepNewest = KEEP_REPORTS) {
-  const reports = storedKeys.filter((key) => key.startsWith(REPORT_PREFIX) && key !== LATEST_KEY);
-  return reports.length <= keepNewest ? [] : reports.slice(0, reports.length - keepNewest);
+/**
+ * Keys for reports beyond the newest KEEP_REPORTS.
+ *
+ * Ordered by each report's own generatedAt rather than by key order: storage
+ * returns a plain object and guarantees nothing about iteration order, so
+ * trusting it risks deleting the report that was just written.
+ */
+export function expiredReportKeys(stored = {}, keepNewest = KEEP_REPORTS) {
+  const reports = Object.entries(stored)
+    .filter(([key]) => key.startsWith(REPORT_PREFIX) && key !== LATEST_KEY)
+    .map(([key, value]) => ({ key, at: Date.parse(value?.generatedAt ?? "") || 0 }))
+    .sort((a, b) => a.at - b.at);
+  return reports.length <= keepNewest ? [] : reports.slice(0, reports.length - keepNewest).map((item) => item.key);
 }

@@ -7,7 +7,7 @@ bridge.start().then(({ port, pairCode }) => {
   console.log("MarketFit Local AI Bridge is ready.");
   console.log(`Port: ${port}`);
   console.log(`Pairing code: ${pairCode}`);
-  console.log("Open MarketFit > AI evidence enhancement, then paste this port and code.");
+  console.log("In MarketFit, choose Codex CLI or Claude Code as the provider, then paste this port and code.");
 }).catch((error) => {
   console.error(`Bridge failed to start: ${error.message}`);
   process.exitCode = 1;

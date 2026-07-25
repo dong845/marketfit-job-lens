@@ -1,15 +1,16 @@
 {
   "name": "marketfit-job-lens",
-  "version": "0.6.11",
+  "version": "0.7.0",
   "private": true,
   "type": "module",
-  "description": "Chrome extension MVP for CV-to-job analysis with market reality layers.",
+  "description": "Chrome side-panel extension that analyses the current job page against your CV.",
   "scripts": {
     "test": "node --test tests/*.test.mjs && node scripts/smoke-test.mjs",
     "lint": "node scripts/static-check.mjs",
     "bridge": "node bridge/src/index.js",
     "vendor:pdfjs": "node scripts/vendor-pdfjs.mjs",
-    "icons": "node scripts/render-icons.mjs"
+    "icons": "node scripts/render-icons.mjs",
+    "audit": "node scripts/audit.mjs"
   },
   "engines": {
     "node": ">=20"

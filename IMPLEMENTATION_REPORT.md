@@ -40,7 +40,10 @@ cannot drift.
 `npm test` runs the unit suite plus an end-to-end smoke test over the shipping
 path: snapshot → normalized job → validated request → parsed evidence.
 `npm run lint` runs syntax checks and the manifest/permission/endpoint assertions
-in `scripts/static-check.mjs`.
+in `scripts/static-check.mjs`. `npm run audit` runs the cross-file checks that no
+unit test covers: a manifest pointing at a deleted file, an element id renamed in
+HTML but not in JS, a string added in one language only, an unescaped innerHTML
+write, an unexpected network host, or a module nothing imports any more.
 
 Two checks exist because their absence previously produced silent failures rather
 than test failures:
