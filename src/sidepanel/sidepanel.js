@@ -502,7 +502,8 @@ async function runAgentReview() {
     const model = isApiProvider(provider) ? fields.apiModel.value : provider;
     renderActionMessage(t(locale, "requestingAi"));
     const startedAt = Date.now();
-    const stopTimer = startElapsedTimer(model, await estimateSeconds(model));
+    const inputChars = (resume.text?.length || 0) + (job.sourceText?.length || 0);
+    const stopTimer = startElapsedTimer(model, await estimateSeconds(model, inputChars));
     try {
       const response = isApiProvider(provider) ? await directApiClient.runTask(task) : await bridgeClient.runTask(task);
       // Both routes answer with the same envelope. A missing result means the
@@ -514,7 +515,7 @@ async function runAgentReview() {
     } finally {
       stopTimer();
     }
-    await recordDuration(model, Math.round((Date.now() - startedAt) / 1000));
+    await recordDuration(model, Math.round((Date.now() - startedAt) / 1000), inputChars);
     renderAnalysis(lastAgentEvidence);
     fields.reportRow.hidden = false;
     setStatus(format(locale, "aiFinished", { provider }));
@@ -554,26 +555,39 @@ function startElapsedTimer(model, estimate) {
 }
 
 /**
- * How long to say this will take. Starts from the registry's rough figure and is
- * replaced by what this machine actually measured for that model, so the estimate
- * reflects the user's own network and job sizes rather than a number we invented.
+ * How long to say this will take.
+ *
+ * Duration tracks how much text the model has to read: a real CV and job page
+ * build a prompt roughly eight times the size of a short one, and a flat
+ * per-model number was badly wrong for exactly the jobs people actually analyse.
+ * So each measurement is stored with the input size that produced it, and the
+ * estimate scales from there. Until this machine has measured that model once,
+ * it falls back to the registry's rough figure.
  */
-async function estimateSeconds(model) {
+async function estimateSeconds(model, chars) {
   const fallback = MODELS[model]?.typicalSeconds || CLI_TYPICAL_SECONDS[model] || 60;
   try {
     const stored = await chrome.storage.local.get(TIMING_KEY);
-    return Math.round(stored[TIMING_KEY]?.[model] || fallback);
+    const measured = stored[TIMING_KEY]?.[model];
+    if (!measured?.seconds || !measured?.chars || !chars) return fallback;
+    const scaled = measured.seconds * (chars / measured.chars);
+    // Bounded: one unusual run should not produce an absurd prediction.
+    return Math.round(Math.min(Math.max(scaled, 15), 900));
   } catch {
     return fallback;
   }
 }
 
-async function recordDuration(model, seconds) {
+async function recordDuration(model, seconds, chars) {
   try {
     const stored = await chrome.storage.local.get(TIMING_KEY);
     const timings = stored[TIMING_KEY] || {};
-    // Smoothed, so one slow run does not dominate the next estimate.
-    timings[model] = timings[model] ? Math.round(timings[model] * 0.6 + seconds * 0.4) : seconds;
+    const previous = timings[model];
+    // Smoothed against the previous measurement, so one slow run does not
+    // dominate, while still tracking a genuine change in speed.
+    timings[model] = previous?.seconds
+      ? { seconds: Math.round(previous.seconds * 0.5 + seconds * 0.5), chars: Math.round(previous.chars * 0.5 + chars * 0.5) }
+      : { seconds, chars };
     await chrome.storage.local.set({ [TIMING_KEY]: timings });
   } catch {
     // An estimate is a convenience; failing to remember one must not fail a run.

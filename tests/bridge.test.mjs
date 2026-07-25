@@ -520,3 +520,37 @@ test("the panel warns when the running bridge is older than the extension", () =
   assert.match(sidepanel, /health\?\.version && running && health\.version !== running/);
   assert.match(sidepanel, /bridgeOutdated/);
 });
+
+test("every bridge call is bounded, including the long-running task", () => {
+  // There was no timeout at all: a bridge that stopped answering — killed,
+  // restarted mid-request, wedged — left the panel waiting forever with its
+  // elapsed counter climbing and no error. Reported at 400s and still going.
+  const client = readFileSync(new URL("../src/bridge/bridgeClient.js", import.meta.url), "utf8");
+  assert.match(client, /new AbortController\(\)/);
+  assert.match(client, /signal: controller\.signal/);
+  assert.match(client, /const CONTROL_TIMEOUT_MS = \d+/);
+  assert.match(client, /const TASK_TIMEOUT_MS = \d+/);
+  // request() defaults to the short bound, so a call that forgets to pass one is
+  // still bounded rather than unbounded.
+  assert.match(client, /function request\(fetchImpl, url, options, timeoutMs = CONTROL_TIMEOUT_MS\)/);
+
+  // The extension's task bound must exceed the bridge's own, so the bridge's
+  // more specific error wins instead of a generic client-side abort.
+  const extensionMs = Number(client.match(/const TASK_TIMEOUT_MS = (\d+)/)[1]);
+  const processSource = readFileSync(new URL("../bridge/src/process.js", import.meta.url), "utf8");
+  const bridgeMs = Number(processSource.match(/timeoutMs = (\d+)/)[1]);
+  assert.ok(extensionMs > bridgeMs, `extension bound ${extensionMs}ms must exceed bridge bound ${bridgeMs}ms`);
+});
+
+test("a bridge that never answers fails with a message, not a hang", async () => {
+  const { createBridgeClient } = await import("../src/bridge/bridgeClient.js");
+  const client = createBridgeClient({
+    storageArea: { async get() { return { "marketfit.bridge.v1": { port: 8765, token: "t" } }; }, async set() {}, async remove() {} },
+    runtime: { id: "e".repeat(32) },
+    // Never resolves, but must honour the abort signal.
+    fetchImpl: (url, options) => new Promise((_, reject) => {
+      options.signal.addEventListener("abort", () => reject(new Error("aborted")));
+    })
+  });
+  await assert.rejects(() => client.health(), /stopped responding/);
+});

@@ -6,8 +6,9 @@ const MAX_OUTPUT_BYTES = 1024 * 1024;
 export function runProcess(command, args, options = {}) {
   // A CLI pays process startup, model selection, and its own retries before the
   // first token, on top of the generation the HTTP path also does. A measured
-  // Claude Code run took 221s, so 90s was cutting off work that was succeeding.
-  const { cwd, env, stdin = "", timeoutMs = 360000, spawnImpl = spawn } = options;
+  // Claude Code run on a small fixture took 221s; a real CV and job page are far
+  // larger, so the ceiling is generous and the panel shows elapsed time instead.
+  const { cwd, env, stdin = "", timeoutMs = 600000, spawnImpl = spawn } = options;
   return new Promise((resolve, reject) => {
     let settled = false;
     let timer;
