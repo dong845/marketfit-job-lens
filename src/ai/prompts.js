@@ -51,6 +51,16 @@ export function buildAnalyzePrompt(request) {
     "Block IDs belong in the evidence arrays and nowhere else. Never write CV-003, JD-007 or any similar token into a headline, rationale, explanation, summary, note or action — the reader never sees the block list, so an ID in a sentence is noise to them. Name the thing itself: \"the posting's sponsorship line\", \"your 2023 C++ port\".",
     `Cover the requirements that matter, up to ${RESULT_LIMITS.requirements}, and up to ${RESULT_LIMITS.strengths} items in each other list. Prefer fewer, well-evidenced items over padding.`,
     "Return the JSON object only.",
+    // Carried in the prompt for every provider, not just the ones whose request
+    // cannot hold it. Four of the selectable models have no structured-output mode,
+    // and the strict-mode retry strips the schema from the request for the ones that
+    // do — so without this they were told to "match the supplied schema" and never
+    // supplied one. DeepSeek's json_object mode additionally documents that the
+    // prompt must show the desired shape, which is why the word json appears here.
+    "The json object you return must match this schema exactly. Use these property names and no others, include every required property, and use only the listed enum values:",
+    "<output_schema>",
+    wireSchemaJson(),
+    "</output_schema>",
     "<untrusted_request_data>",
     JSON.stringify({
       evidenceBlocks: evidenceBlocks.all.map(({ id, source, quote }) => ({ id, source, text: quote })),

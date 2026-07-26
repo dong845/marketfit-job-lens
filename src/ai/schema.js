@@ -365,14 +365,23 @@ export function parseTaskRequest(value) {
 export function parseAgentEvidence(value, request) {
   const result = object(value, "Provider output must be a JSON object.");
   const overview = object(result.overview, "overview must be an object.");
-  const requirements = Array.isArray(result.requirements) ? result.requirements : invalid("requirements must be an array.");
-  const strengths = Array.isArray(result.strengths) ? result.strengths : invalid("strengths must be an array.");
-  const gaps = Array.isArray(result.gaps) ? result.gaps : invalid("gaps must be an array.");
-  const risks = Array.isArray(result.risks) ? result.risks : invalid("risks must be an array.");
-  const resumeTailoring = Array.isArray(result.resumeTailoring) ? result.resumeTailoring : invalid("resumeTailoring must be an array.");
-  const interviewFocus = Array.isArray(result.interviewFocus) ? result.interviewFocus : invalid("interviewFocus must be an array.");
-  const uncertainties = Array.isArray(result.uncertainties) ? result.uncertainties : invalid("uncertainties must be an array.");
-  const suggestedActions = Array.isArray(result.suggestedActions) ? result.suggestedActions : invalid("suggestedActions must be an array.");
+  // A missing list is an omission, not a corrupt reply. Four of the selectable
+  // models have no structured-output mode and follow the schema only because the
+  // prompt shows it, so rejecting the whole analysis because one list of eight was
+  // absent discarded a call the user had already paid for. Empty is checked at the
+  // end instead: an answer with nothing in any of them is the real failure.
+  const list = (value) => (Array.isArray(value) ? value : []);
+  const requirements = list(result.requirements);
+  const strengths = list(result.strengths);
+  const gaps = list(result.gaps);
+  const risks = list(result.risks);
+  const resumeTailoring = list(result.resumeTailoring);
+  const interviewFocus = list(result.interviewFocus);
+  const uncertainties = list(result.uncertainties);
+  const suggestedActions = list(result.suggestedActions);
+  if (![requirements, strengths, gaps, risks, resumeTailoring, interviewFocus, uncertainties, suggestedActions].some((items) => items.length)) {
+    invalid("Provider returned an analysis with no findings of any kind.");
+  }
   // Trim rather than reject: an over-long list is verbosity, and discarding a
   // paid analysis over it is worse than showing the first N items. Providers are
   // told the caps via the schema, but strict/structured modes drop the keyword

@@ -11,6 +11,7 @@ import { AGENT_EVIDENCE_SCHEMA, BridgeError, FIELD_LIMITS, RESULT_LIMITS, extrac
  */
 
 function apiRequest(provider = "openai-api", options = {}) {
+  // options doubles as the model/language pair for provider-specific prompt checks.
   return parseTaskRequest({
     requestId: "test-request-1",
     taskType: "analyze_job",
@@ -205,4 +206,38 @@ test("the caps the model is told match the caps applied to its reply", () => {
   for (const key of ["requirements", "strengths", "gaps", "risks", "resumeTailoring", "interviewFocus", "uncertainties", "suggestedActions"]) {
     assert.equal(schema.properties[key].maxItems, RESULT_LIMITS[key], `${key} cap drifted between schema and parser`);
   }
+});
+
+test("the shape is described to the model, not just demanded of it", async () => {
+  // Four of the eight selectable models have no structured-output mode, and the
+  // strict-mode retry strips the schema from the request for the ones that do. The
+  // system policy tells every model to "match the supplied schema", so the schema
+  // has to actually be supplied somewhere that always travels.
+  const { buildAnalyzePrompt } = await import("../src/ai/prompts.js");
+  const prompt = buildAnalyzePrompt(apiRequest("deepseek-api", { model: "deepseek-v4-flash", language: "zh" }));
+  assert.match(prompt, /<output_schema>/);
+  for (const field of ["recommendation", "statedConditions", "requirements", "suggestedActions", "levelComparison"]) {
+    assert.ok(prompt.includes(`"${field}"`), `the schema in the prompt omits ${field}`);
+  }
+  assert.match(prompt, /"enum":\["strong_fit","worth_applying","stretch","weak_fit"\]/);
+  // DeepSeek's json_object mode documents that the prompt must contain the word.
+  assert.match(prompt, /\bjson\b/);
+  assert.equal(prompt.includes("session-test-api-key-123"), false, "credentials must never reach the prompt");
+});
+
+test("one omitted list does not throw away the whole analysis", () => {
+  // Without structured output a model follows the schema only because the prompt
+  // shows it, and it will sometimes drop an empty section entirely. That is an
+  // omission, not a corrupt reply, and the call was already billed.
+  const partial = validEvidence();
+  for (const key of ["risks", "resumeTailoring", "interviewFocus", "uncertainties", "suggestedActions", "strengths", "gaps"]) delete partial[key];
+  const parsed = parseAgentEvidence(partial, apiRequest());
+  assert.equal(parsed.requirements.length, 1);
+  assert.deepEqual(parsed.risks, []);
+  assert.deepEqual(parsed.suggestedActions, []);
+
+  // But an answer with nothing in any list is a failure, not an empty analysis.
+  const hollow = validEvidence();
+  for (const key of ["requirements", "strengths", "gaps", "risks", "resumeTailoring", "interviewFocus", "uncertainties", "suggestedActions"]) hollow[key] = [];
+  assert.throws(() => parseAgentEvidence(hollow, apiRequest()), (error) => error.code === "OUTPUT_UNTRUSTED");
 });

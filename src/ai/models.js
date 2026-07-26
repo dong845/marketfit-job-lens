@@ -67,9 +67,9 @@ export const MODELS = Object.freeze({
     structuredOutputs: true
   },
   // DeepSeek serves an OpenAI-compatible /chat/completions endpoint. It accepts
-  // response_format json_object (valid JSON, no schema) rather than a strict
-  // json_schema, so the schema is carried by the prompt and enforced by
-  // parseAgentEvidence — which validates every reply regardless of provider.
+  // response_format json_object — valid JSON, but no shape — so the schema travels
+  // in the prompt (see buildAnalyzePrompt) and is enforced on arrival by
+  // parseAgentEvidence, which validates every reply regardless of provider.
   // deepseek-chat and deepseek-reasoner were retired on 2026-07-24 and the API now
   // rejects them outright, which cost a run rather than degrading. Both of these
   // default to thinking mode, and thinking spends the same output budget as the
