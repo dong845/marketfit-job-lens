@@ -329,6 +329,26 @@ for (const page of ["src/sidepanel/sidepanel.html", "src/report/report.html"]) {
 }
 ok.push("no untranslated visible text in either page's markup");
 
+// ---- 13. the README's model table matches the registry
+// Every check so far looked at code. The README kept advertising DeepSeek V3 and R1
+// for two days after the API retired those names, because nothing compared prose
+// against the registry. Documentation goes stale in exactly the way code does; the
+// difference is that only the code has anything watching it.
+const readme = readFileSync(join(root, "README.md"), "utf8");
+const providerRow = (name) => (readme.match(new RegExp(`^\\| ${name} \\|([^|]*)\\|`, "m")) || [, ""])[1];
+const modelLabels = (provider) => [...i18n.matchAll(/labelKey: "([^"]+)"/g)] && [...readFileSync(join(root, "src/ai/models.js"), "utf8")
+  .matchAll(new RegExp(`provider: "${provider}",\\s*\\n\\s*labelKey: "([^"]+)"`, "g"))].map((m) => m[1]);
+for (const [provider, rowName] of [["openai-api", "OpenAI"], ["anthropic-api", "Anthropic"], ["deepseek-api", "DeepSeek"]]) {
+  const row = providerRow(rowName);
+  if (!row) { fail.push(`README has no model row for ${rowName}`); continue; }
+  for (const key of modelLabels(provider)) {
+    // The label carries a parenthetical hint the table omits; compare the name only.
+    const name = (block("en").has(key) ? (i18n.match(new RegExp(`${key}: "([^"(]+)`)) || [, key])[1] : key).trim();
+    if (!row.includes(name)) fail.push(`README lists no "${name}" for ${rowName} — the model table has drifted from the registry`);
+  }
+}
+ok.push("the README's model table matches the model registry");
+
 console.log(`\n${"=".repeat(64)}\nFAIL (${fail.length})`);
 fail.forEach((f) => console.log("  ✗ " + f));
 if (!fail.length) console.log("  none");
