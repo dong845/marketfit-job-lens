@@ -65,25 +65,6 @@ export function isSameJobPage(firstUrl, secondUrl) {
 
 // This function runs inside the active job page, so it must stay self-contained.
 export async function collectVisibleJobPage() {
-  let previousLength = 0;
-  let stableCount = 0;
-  let best = null;
-
-  for (let i = 0; i < 12; i += 1) {
-    const snapshot = collectJobPageNow();
-    if (!best || snapshot.qualityScore > best.qualityScore || (snapshot.qualityScore === best.qualityScore && snapshot.text.length > best.text.length)) best = snapshot;
-
-    const length = snapshot.text.length;
-    const stable = length > 300 && Math.abs(length - previousLength) < 30;
-    stableCount = stable ? stableCount + 1 : 0;
-    if (stableCount >= 2 || snapshot.qualityScore >= 0.88) break;
-
-    previousLength = length;
-    await new Promise((resolve) => setTimeout(resolve, 400));
-  }
-
-  return best || collectJobPageNow();
-
   /**
    * Containers that are never the posting, removed before any text is read.
    *
@@ -106,6 +87,25 @@ export async function collectVisibleJobPage() {
     "[class*='recommended-job']", "[class*='recommendedJob']", "[class*='other-jobs']", "[class*='more-jobs']",
     "[class*='social-share']", "[class*='newsletter']"
   ].join(", ");
+  let previousLength = 0;
+  let stableCount = 0;
+  let best = null;
+
+  for (let i = 0; i < 12; i += 1) {
+    const snapshot = collectJobPageNow();
+    if (!best || snapshot.qualityScore > best.qualityScore || (snapshot.qualityScore === best.qualityScore && snapshot.text.length > best.text.length)) best = snapshot;
+
+    const length = snapshot.text.length;
+    const stable = length > 300 && Math.abs(length - previousLength) < 30;
+    stableCount = stable ? stableCount + 1 : 0;
+    if (stableCount >= 2 || snapshot.qualityScore >= 0.88) break;
+
+    previousLength = length;
+    await new Promise((resolve) => setTimeout(resolve, 400));
+  }
+
+  return best || collectJobPageNow();
+
 
   function collectJobPageNow() {
     const selectors = [

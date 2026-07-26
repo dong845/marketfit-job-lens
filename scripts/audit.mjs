@@ -285,6 +285,24 @@ for (const f of ["src/ai/directApiClient.js", "src/ai/providerPayload.js", "src/
 const orphans = [...en].filter((k) => k !== "en" && !usedKeys.has(k));
 if (orphans.length) warn.push(`i18n keys with no visible consumer: ${orphans.join(", ")}`);
 
+// ---- 11. the injected page extractor has nothing in a temporal dead zone
+// collectVisibleJobPage is handed to chrome.scripting, so its helpers are function
+// declarations that hoist — but a const does not. One declared after the function's
+// return never initialises, which parses, imports and lints cleanly and then throws
+// ReferenceError on the first line that reads it, inside the page where nothing here
+// can see. tests/pageCapture.test.mjs executes the function; this catches the shape
+// even on a path that test does not reach.
+const capture = readFileSync(join(root, "src/extraction/tabCapture.js"), "utf8");
+const injected = capture.slice(capture.indexOf("export async function collectVisibleJobPage"));
+const returnAt = injected.search(/^  return /m);
+if (returnAt > 0) {
+  const afterReturn = injected.slice(returnAt);
+  for (const m of afterReturn.matchAll(/^  (const|let) (\w+)/gm)) {
+    fail.push(`tabCapture.js: ${m[1]} ${m[2]} is declared after collectVisibleJobPage returns, so it never initialises`);
+  }
+}
+ok.push("the injected page extractor initialises everything it reads");
+
 console.log(`\n${"=".repeat(64)}\nFAIL (${fail.length})`);
 fail.forEach((f) => console.log("  ✗ " + f));
 if (!fail.length) console.log("  none");
