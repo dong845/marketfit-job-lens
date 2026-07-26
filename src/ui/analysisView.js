@@ -31,8 +31,8 @@ export function renderAnalysisHtml(evidence, locale, candidate = {}) {
     renderStatedConditions(evidence.statedConditions, locale, candidate.workAuthorization),
     renderOverview(evidence.overview, locale),
     renderRequirements(evidence.requirements, locale),
-    renderCards(t(locale, "aiStrengths"), evidence.strengths, (item) => titleAndSummary(item.title, item.summary), locale),
-    renderCards(t(locale, "aiGaps"), evidence.gaps, (item) => gapItem(item, locale), locale),
+    renderCards(t(locale, "aiStrengths"), evidence.strengths, (item) => titleAndSummary(item.title, item.summary), locale, "positive"),
+    renderCards(t(locale, "aiGaps"), evidence.gaps, (item) => gapItem(item, locale), locale, "negative"),
     renderActions(evidence.suggestedActions, locale),
     renderGroup(t(locale, "sectionPrepare"), [
       renderCards(t(locale, "resumeTailoring"), evidence.resumeTailoring, (item) => titleAndSummary(item.target, item.recommendation), locale, "sub"),
@@ -115,12 +115,17 @@ function requirementScore(requirements, locale) {
   const required = (requirements || []).filter((item) => item.level === "required");
   if (!required.length) return "";
   const count = (states) => required.filter((item) => states.includes(item.match)).length;
-  return `<p class="verdict-score">${escapeHtml(format(locale, "verdictScore", {
-    total: required.length,
-    met: count(["strong"]),
-    partial: count(["partial"]),
-    missing: count(["gap", "no_evidence"])
-  }))}</p>`;
+  const met = count(["strong"]);
+  const partial = count(["partial"]);
+  const missing = count(["gap", "no_evidence"]);
+  // Segments, not a percentage. Collapsing these into one number needs a weight for
+  // a partial match, and any weight would be invented — the bar shows exactly what
+  // was counted and claims nothing that was not.
+  const segment = (value, tone) => (value ? `<span class="coverage-fill tone-${tone}" style="flex:${value}"></span>` : "");
+  return `<div class="coverage">
+    <div class="coverage-bar">${segment(met, "ok")}${segment(partial, "warn")}${segment(missing, "bad")}</div>
+    <p class="verdict-score">${escapeHtml(format(locale, "verdictScore", { total: required.length, met, partial, missing }))}</p>
+  </div>`;
 }
 
 function effortKey(effort) {

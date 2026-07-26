@@ -247,3 +247,35 @@ test("a section with nothing on its side of the split is omitted", () => {
   assert.match(onlyEmployer, /What to ask them/);
   assert.equal(onlyEmployer.includes("What your CV leaves unanswered"), false);
 });
+
+test("the coverage bar shows the counted requirements and claims nothing more", () => {
+  // A single "87% match" would need a weight for a partial match, and any weight
+  // would be invented. The bar is the three counts drawn to scale — same data as the
+  // line beneath it, readable without being read, and no number that is not counted.
+  const html = renderAnalysisHtml(evidenceFixture({
+    requirements: [
+      { name: "A", level: "required", match: "strong", explanation: "x", evidence: [] },
+      { name: "B", level: "required", match: "partial", explanation: "x", evidence: [] },
+      { name: "C", level: "required", match: "gap", explanation: "x", evidence: [] },
+      { name: "D", level: "required", match: "no_evidence", explanation: "x", evidence: [] },
+      { name: "E", level: "preferred", match: "no_evidence", explanation: "x", evidence: [] }
+    ]
+  }), "en");
+  assert.match(html, /class="coverage-bar"/);
+  // met 1, partial 1, missing 2 — the preferred row is not a required area.
+  assert.match(html, /coverage-fill tone-ok" style="flex:1"/);
+  assert.match(html, /coverage-fill tone-warn" style="flex:1"/);
+  assert.match(html, /coverage-fill tone-bad" style="flex:2"/);
+  assert.match(html, /4 required areas · 1 evidenced · 1 partial · 2 missing/);
+  // No percentage anywhere: there is no honest one to compute.
+  assert.equal(/\d+%/.test(html), false, "a match percentage would be an invented weighting");
+});
+
+test("a segment with nothing in it is not drawn", () => {
+  const html = renderAnalysisHtml(evidenceFixture({
+    requirements: [{ name: "A", level: "required", match: "strong", explanation: "x", evidence: [] }]
+  }), "en");
+  assert.match(html, /coverage-fill tone-ok/);
+  assert.equal(html.includes("tone-warn\" style=\"flex:0\""), false);
+  assert.equal(html.includes("tone-bad"), false);
+});
