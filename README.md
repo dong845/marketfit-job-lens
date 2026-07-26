@@ -2,33 +2,116 @@
 
 English · [简体中文](README.zh-CN.md)
 
-A Manifest V3 Chrome side panel that reads the job posting in your current tab, compares it against your PDF CV, and answers one question: **is this worth an evening?**
+A Chrome side panel that reads the job posting in your current tab, compares it
+against your PDF CV, and answers one question: **is this worth an evening?**
 
-Interface and analysis both available in English and 中文.
+Interface and analysis both in English and 中文.
 
-It is not an interview prediction, a legal opinion, an immigration assessment, or an automated application tool.
+It is not an interview prediction, a legal opinion, an immigration assessment, or an
+automated application tool.
 
-## What you get
+---
 
-**The decision first.** A verdict — apply / worth applying / fix gaps first / probably skip — with the count behind it (`4 required areas · 1 evidenced · 1 partial · 2 missing`), what applying would cost you (half an hour of edits, one evening, more), and the single change that would most move the application.
+## Install
 
-**Screening separated from wishlist.** Postings write "required" on every line. A knockout is what a recruiter can check without judgement and that ends the application on its own — a licence, a clearance, a right-to-work condition. Everything else is weighted, and the verdict follows the knockouts rather than a box count.
+Download the latest `marketfit-job-lens-*.zip` from
+[Releases](https://github.com/dong845/marketfit-job-lens/releases), unzip it, then:
 
-**The employer's own conditions, quoted.** A sponsorship line decides an application before fit does, so it sits directly under the verdict. Where a stated condition conflicts with the work authorization you selected, the verdict is lowered and the card says so — a comparison of two stated facts, never a judgement about your legal status.
+`chrome://extensions` → turn on **Developer mode** → **Load unpacked** → select the
+unzipped folder.
 
-**A plan, not a list.** Actions are grouped by when to do them and numbered, and everything the analysis asks of you appears there exactly once.
+The panel opens from the extension icon. Its header shows the loaded version — if
+that does not match the release you just installed, Chrome is still running the old
+code and needs a reload.
 
-**Tailoring that stays honest.** It may reorder and sharpen evidence your CV already contains. It may not add a skill, upgrade "contributed to" into "led", restate a team result as yours, or supply a number you did not.
+## Set up, once
 
-### Deliberately absent
+1. **Upload a PDF CV.** It must be a text PDF, not a scan — the text is extracted in
+   your browser, and an image has none to extract.
+2. **Say whether you can work where the job is.** One dropdown. Left on *Unknown* it
+   changes nothing; set truthfully, the employer's stated conditions get checked
+   against it.
+3. **Choose a provider and paste an API key.** See the table below. The key lives in
+   the open panel only.
 
-- **Immigration advice.** No visa routes, quotas, or processing times. There is no policy data here and no way to verify what a model recalls; a confident wrong answer about eligibility is worse than none. It reports what the employer wrote and leaves you to check it.
-- **Predictions.** No interview odds, no hiring probability.
-- **Invented evidence.** Every claim cites a block of your CV or the posting, and references that do not resolve are dropped rather than shown.
+## Using it
+
+Open a job posting, click **Analyze current job with AI**, and read down:
+
+| What you see | What it is telling you |
+| --- | --- |
+| **The verdict word** | Apply / Worth applying / Fix gaps first / Probably skip |
+| **The bar under it** | Your required-area coverage, drawn: met, partial, missing |
+| **The cost tag** | What applying takes — wording only, an evening, more, or not closable |
+| **What would change this** | The single edit that moves the application furthest |
+| **Conditions the employer states** | Their own sentence, plus the question that settles it — send that sentence as written |
+| **Requirements** | Each tagged required/preferred and met/partial/not met, hard filters first |
+| **Gaps to close** | With *how* to close each, and which cannot be closed before applying |
+| **Do this next** | The whole plan, grouped by when and numbered. Everything asked of you appears here once |
+| **What to ask them** / **What your CV leaves unanswered** | Two different jobs — the second is one only you can do |
+
+**Open full report** gives the same analysis as a full-width page you can print or
+keep. Reports last for the browser session.
+
+If a page cannot be read — a login wall, a heavy single-page app — use **Edit job
+text** and paste the posting. Pasted text is never overwritten by a re-capture.
+
+---
+
+## How it works
+
+Worth understanding, because it is what makes the output checkable rather than
+merely confident.
+
+**1 · The page is read once, and trimmed.** One click, `activeTab`, the tab you are
+looking at. Navigation, cookie banners, similar-job rails and application forms are
+removed before anything is sent; the panel reports how many lines went and lists
+them on hover. A screening condition — sponsorship, a licence, a clearance — is
+never removed by any filter rule, because dropping one silently would flip the
+verdict.
+
+**2 · Both documents are cut into addressable blocks.** Your CV becomes `CV-001`,
+`CV-002`… and the posting `JD-001`, `JD-002`… roughly a paragraph each. The model
+may only cite blocks that exist; every reference is resolved back to the real text
+on arrival, and any that does not resolve is dropped. That is what stops invented
+evidence. It is a plausibility bound, not a proof — it guarantees a claim points at
+something real, not that the claim follows from it.
+
+**3 · The answer has a fixed shape.** A JSON schema travels with every request,
+including to models that cannot enforce it and on the fallback path where
+enforcement is stripped. A reply that overruns a limit is trimmed rather than
+refused, and a missing section is treated as empty, because discarding an analysis
+you already paid for is the worse failure.
+
+**4 · Some things are decided in code, not by the model.**
+
+| Decided by the model | Decided in code |
+| --- | --- |
+| What the role is, and how your CV compares | Whether a stated condition conflicts with what you declared |
+| Which requirements screen you out | The coverage count under the verdict |
+| What to change, and what to ask | Stripping block IDs out of prose |
+| Which list an item belongs in | What counts as page furniture |
+
+Anything whose failure would be both invisible and decisive sits on the right. The
+model is asked not to write `JD-001` into a sentence and mostly complies — mostly is
+not enough, so the parser removes them.
+
+**5 · What it will not do.** No visa routes, quotas or processing times: there is no
+policy data here and no way to verify what a model recalls, and a confident wrong
+answer about your eligibility is worse than none. No interview odds. **No match
+percentage** — collapsing met, partial and missing into one score needs a weight for
+a partial match, and any weight would be invented. No salary or market figures,
+because nothing here measures them.
+
+**Tailoring stays honest.** It reorders and sharpens evidence your CV already
+contains. It will not add a skill, upgrade "contributed to" into "led", restate a
+team result as yours, or supply a number you did not.
+
+---
 
 ## Providers
 
-Choose one and paste its API key into the panel. The key stays in that open panel, is never written to storage, and Chrome asks for access to that one provider domain before the first request.
+You bring the key; usage is billed by that provider to your own account.
 
 | Provider | Models | Get a key |
 | --- | --- | --- |
@@ -36,61 +119,58 @@ Choose one and paste its API key into the panel. The key stays in that open pane
 | Anthropic | Claude Opus 5, Claude Sonnet 5, Claude Opus 4.6, Claude Sonnet 4.6 | [platform.claude.com/settings/keys](https://platform.claude.com/settings/keys) |
 | DeepSeek | DeepSeek V4 Flash, DeepSeek V4 Pro | [platform.deepseek.com](https://platform.deepseek.com/) → API keys |
 
-The step that stops people is not creating the key — it is billing. **A new key on an account with no credit fails on the first call**, with an error that reads like the extension is broken. Top up first. Keys are shown once at creation; if you lose one, make another.
+All three are verified working end to end.
 
-## Run locally
+The step that stops people is not creating the key — it is billing. **A new key on
+an account with no credit fails on the first call**, with an error that reads like
+the extension is broken. Top up first. Keys are shown once; if you lose one, make
+another.
 
-```bash
-npm install          # pdfjs-dist, the only runtime dependency
-npm run vendor:pdfjs # copies the PDF runtime into vendor/
-npm run check        # lint + tests + audit
-```
+## Privacy
 
-Then open `chrome://extensions`, enable Developer mode, choose **Load unpacked**, and select this directory.
+No backend, no account, no analytics, no telemetry. Nothing is transmitted until you
+click Analyze.
 
-Open a full job page, click the extension, choose a text-based PDF CV and your target market and work-authorisation status, select an AI provider, then click **Analyze current job with AI**. If Chrome asks to allow the current site, approve that single-site prompt and MarketFit retries automatically.
+- The PDF is parsed **in your browser**; the file is never uploaded.
+- Running an analysis sends the CV text and the filtered posting **only to the
+  provider you chose** — there is no relay in between.
+- Chrome asks before reaching a provider's domain, and before reading a site.
+- **Never stored:** the PDF, its text, your API key.
+- **Stored:** interface language, and how long past runs took. Reports live for the
+  browser session and contain no CV text — quoted passages are stripped first.
+- **Clear local session** wipes the in-memory state and every stored report.
 
-The panel header shows the loaded version. If it does not match `manifest.json` after a change, the extension has not been reloaded — Chrome keeps running the previous code until you press reload.
+**Preview optional AI payload** in the panel shows exactly what a run would send,
+with obvious PII redacted. Full detail in [PRIVACY.md](PRIVACY.md).
 
-## Data handling
-
-- PDF files and their extracted text stay in side-panel memory and are never written to Chrome storage. Scanned or image-only PDFs are rejected, because no reliable text can be extracted locally.
-- The current job is captured from the active tab only after you click **Analyze current job with AI**. A manual editor is the fallback when a page cannot be read, and pasted text is never overwritten by a re-capture.
-- Page furniture — navigation, cookie banners, similar-job rails, application forms — is filtered out before anything is sent. The panel reports how many lines were removed and lists them on hover, because a filter you cannot inspect is one you cannot catch being wrong.
-- The default flow makes no provider request. AI analysis is explicitly initiated and sends the PDF-derived CV text plus the captured posting **only to the provider you selected** — no backend, no telemetry, no relay.
-- API-key and model fields appear only after an API-key provider is selected, which is when Chrome asks for access to that specific domain.
-- **Clear local session** removes the in-memory CV, job, result, API key, and every stored report.
-- Persisted across sessions: interface language and how long past runs took. Reports live for the browser session and carry no CV text — source quotes are stripped before storage.
-
-**Preview optional AI payload** in the panel shows exactly what a run would send, with obvious PII redacted.
+---
 
 ## Development
 
-No build step and no dev dependencies — plain ES modules throughout.
+No build step, no dev dependencies, plain ES modules.
 
 ```bash
-npm run check   # the gate: lint + tests + audit
-npm test        # unit, integration, and page-capture tests
-npm run audit   # cross-file checks a unit test cannot see
+npm install && npm run vendor:pdfjs   # pdfjs-dist is the only runtime dependency
+npm run check                         # lint + tests + audit — the gate
 ```
 
-The audit covers what spans files: a manifest pointing at a deleted icon, an element id renamed in HTML but not JS, a string added in one language only, an unescaped `innerHTML`, a network host that is not one of the three provider APIs, a rendered CSS class with no rule in either stylesheet, an error code with no translation, visible markup with no `data-i18n`, and a `const` in the injected page extractor that would sit in a temporal dead zone.
+The audit covers what spans files and no unit test can see: a manifest pointing at a
+deleted icon, an id renamed in HTML but not JS, a string added in one language only,
+an unescaped `innerHTML`, a network host that is not one of the three provider APIs,
+a rendered CSS class with no rule in either stylesheet, an error code with no
+translation, visible markup with no `data-i18n`, a README model table that has
+drifted from the registry, and a `const` in the injected page extractor that would
+sit in a temporal dead zone.
 
-Most of those exist because the corresponding bug shipped once. Several failure modes here are silent by construction — `t()` renders a missing key as the key name; a filter that drops a requirement looks identical to a posting that never had one — so the guardrails are mechanical rather than advisory, and each was verified by reintroducing the bug and watching the check fail.
+Most exist because the corresponding bug shipped once. Several failure modes here
+are silent by construction — `t()` renders a missing key as the key name; a filter
+that drops a requirement looks identical to a posting that never had one — so the
+guardrails are mechanical, and each was verified by reintroducing the bug and
+watching the check fail.
 
-### Verification status
-
-What has actually been exercised against live APIs:
-
-| Provider | Status |
-| --- | --- |
-| OpenAI | Verified — repeated end-to-end runs against the real API |
-| DeepSeek | Verified working |
-| Anthropic | **Partly verified** — direct browser access is confirmed against the live CORS preflight, after that requirement broke every request from the panel; a full analysis has still never been run |
-
-## Further reading
-
-[docs/analysis-model.md](docs/analysis-model.md) · [docs/privacy-data-flow.md](docs/privacy-data-flow.md) · [IMPLEMENTATION_REPORT.md](IMPLEMENTATION_REPORT.md)
+[docs/analysis-model.md](docs/analysis-model.md) ·
+[docs/privacy-data-flow.md](docs/privacy-data-flow.md) ·
+[docs/chrome-store-submission.md](docs/chrome-store-submission.md)
 
 ## Licence
 

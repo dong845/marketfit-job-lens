@@ -186,12 +186,12 @@ Honest about what may come back.
    answer. `http://*/*` was removed for this reason — no real job board needs it.
 2. **Bring-your-own-key.** Unusual, and can read as incomplete. The listing says it
    plainly so a reviewer is not surprised.
-3. **Anthropic is not verified end to end.** Direct browser access was fixed and
-   confirmed against the live CORS preflight, but a full analysis has never been run
-   against that endpoint. Shipping a provider option to the public that has never
-   completed once is a real quality risk — **run one Anthropic analysis before
-   submitting**, or remove Anthropic from the dropdown for the first release.
-4. **No screenshots yet.** A blocking requirement.
+3. ~~Anthropic is not verified end to end.~~ **Resolved.** All three providers now
+   complete a full analysis against their live endpoints. The failure was a missing
+   `anthropic-dangerous-direct-browser-access` header, which a side panel needs
+   because it is a browser origin.
+4. **Screenshots** are in `docs/store-screenshots/`, generated from the shipping
+   renderer — see the top of this file.
 
 ## Release checklist
 
