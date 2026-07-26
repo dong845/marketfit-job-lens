@@ -51,7 +51,7 @@ test("match state drives both the tag and the row accent", () => {
   assert.match(html, /class="requirement tone-bad"/);   // gap
   assert.match(html, /class="requirement tone-warn"/);  // partial
   assert.match(html, /class="requirement tone-ok"/);    // strong
-  assert.match(html, /<span class="tag tag-bad">Gap<\/span>/);
+  assert.match(html, /<span class="tag tag-bad">Not met<\/span>/);
 });
 
 test("source quotes are never printed, on either surface", () => {

@@ -270,3 +270,27 @@ test("CV conventions come from the posting's location, not from a selector", asy
   assert.match(prompt, /never turn this into a statement about visa or immigration policy/);
   assert.equal(/targetMarket/.test(prompt), false, "the selector is gone; nothing may still reference it");
 });
+
+test("every list is defined against the one it is confused with", async () => {
+  // Placement errors come from undefined boundaries, not from the model. "Ask the
+  // employer" filled up with CV gaps because nothing said what did NOT belong there.
+  const { buildAnalyzePrompt } = await import("../src/ai/prompts.js");
+  const prompt = buildAnalyzePrompt(apiRequest());
+  assert.match(prompt, /A strength is not a requirement scored strong/);
+  assert.match(prompt, /A risk is not a gap/);
+  assert.match(prompt, /An interview topic is not an employer question/);
+  assert.match(prompt, /Positioning does not mention the posting/);
+  // And one rule for the case where two lists both fit.
+  assert.match(prompt, /put it in the one the reader would act on first/);
+});
+
+test("the prose rules name the constructions to avoid, not just a tone", async () => {
+  // "Write naturally" is unactionable. These are the specific tells: stacked hedges,
+  // nominalised verbs, empty intensifiers, and advice that would fit any candidate.
+  const { buildAnalyzePrompt } = await import("../src/ai/prompts.js");
+  const prompt = buildAnalyzePrompt(apiRequest());
+  assert.match(prompt, /if it would be equally true for a different candidate/);
+  assert.match(prompt, /Do not hedge in stacks/);
+  assert.match(prompt, /Do not nominalise a verb into a noun phrase/);
+  assert.match(prompt, /Do not restate the question before answering/);
+});
