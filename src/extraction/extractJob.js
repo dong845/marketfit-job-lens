@@ -1,4 +1,5 @@
 import { CAPTURE_METHODS, createNormalizedJob } from "./schema.js";
+import { filterJobText } from "./jobText.js";
 
 export { CAPTURE_METHODS };
 
@@ -10,7 +11,8 @@ export function extractJob(snapshot = {}) {
   const adapter = detectAdapter(snapshot.url, snapshot.siteHint);
   const capturedText = longestText(snapshot.semantic?.sourceText, snapshot.text);
   if (capturedText) {
-    const sourceText = sanitizeCapturedText(capturedText);
+    const filtered = filterJobText(capturedText);
+    const sourceText = filtered.text;
     const method = adapter || CAPTURE_METHODS.semantic;
     const quality = validateCapturedJob({ sourceText, extraction: { confidence: Number(snapshot.qualityScore || 0) } });
     return enrich({
@@ -20,28 +22,28 @@ export function extractJob(snapshot = {}) {
       employmentType: snapshot.semantic?.employmentType || jsonLdJob?.employmentType || "",
       salary: jsonLdJob?.salary || "",
       sourceText
-    }, snapshot, method, confidenceFor(method, quality, snapshot), !quality.ok);
+    }, snapshot, method, confidenceFor(method, quality, snapshot), !quality.ok, filtered);
   }
   return enrich({ title: jsonLdJob?.title || titleFromSnapshot(snapshot), company: jsonLdJob?.company || "", location: jsonLdJob?.location || "", sourceText: "" }, snapshot, CAPTURE_METHODS.empty, 0, true);
 }
 
 export function createManualJob(input = {}) {
-  const sourceText = sanitizeCapturedText(input.sourceText || input.jobText || "");
+  const filtered = filterJobText(input.sourceText || input.jobText || "");
+  const sourceText = filtered.text;
   const quality = validateCapturedJob({ sourceText, extraction: { confidence: 0.86 } });
   return enrich({
     title: input.title || titleFromText(sourceText), company: input.company || "", location: input.location || "",
     employmentType: input.employmentType || "", salary: input.salary || "", sourceText
-  }, input, CAPTURE_METHODS.manual, quality.ok ? 0.86 : 0.3, !quality.ok);
+  }, input, CAPTURE_METHODS.manual, quality.ok ? 0.86 : 0.3, !quality.ok, filtered);
 }
 
+/**
+ * The single funnel every captured or pasted job passes through. Filtering lives in
+ * jobText.js, which reports what it removed; this keeps the string-in/string-out
+ * shape the rest of the extractor expects.
+ */
 export function sanitizeCapturedText(value) {
-  const seen = new Set();
-  return String(value ?? "").split(/\n+/).map((line) => line.trim()).filter((line) => {
-    if (!line || line.length < 2 || seen.has(line)) return false;
-    if (/cookie|privacy policy|accept all|recommended jobs|related jobs|sign in|subscribe|copyright/i.test(line)) return false;
-    seen.add(line);
-    return true;
-  }).join("\n").slice(0, 26000);
+  return filterJobText(value).text;
 }
 
 /**
@@ -49,7 +51,7 @@ export function sanitizeCapturedText(value) {
  * requirement parsing used to run here too, but the analysis is done by the model
  * from the raw text, so those fields were computed on every capture and never read.
  */
-function enrich(base, snapshot, method, confidence, needsConfirmation) {
+function enrich(base, snapshot, method, confidence, needsConfirmation, filtered = null) {
   const sourceText = base.sourceText || "";
   const quality = validateCapturedJob({ sourceText, extraction: { confidence } });
   return createNormalizedJob({
@@ -62,7 +64,11 @@ function enrich(base, snapshot, method, confidence, needsConfirmation) {
       needsConfirmation: needsConfirmation || !quality.ok,
       textLength: sourceText.length,
       contentFingerprint: jobContentFingerprint(sourceText),
-      qualityReasons: quality.reasons
+      qualityReasons: quality.reasons,
+      // Reported rather than discarded: a filter that quietly drops a requirement is
+      // indistinguishable from a posting that never had one.
+      removedLines: filtered?.removedLines || 0,
+      removedSample: filtered?.removed || []
     }
   });
 }

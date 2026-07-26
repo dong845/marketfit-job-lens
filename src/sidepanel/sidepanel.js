@@ -247,11 +247,20 @@ function renderCurrentJobSummary() {
   fields.currentJobSummary.hidden = !currentJob;
   if (!currentJob) return;
   fields.currentJobMeta.textContent = [currentJob.title || t(locale, "unknown"), currentJob.company, currentJob.location, hostname(currentJob.url)].filter(Boolean).join(" · ");
-  fields.currentJobQuality.textContent = format(locale, "jobQualityLine", {
-    chars: currentJob.extraction?.textLength || currentJob.sourceText.length,
-    method: captureMethodLabel(currentJob.extraction?.method, locale),
-    confidence: Math.round((currentJob.extraction?.confidence || 0) * 100)
-  });
+  const removed = currentJob.extraction?.removedLines || 0;
+  fields.currentJobQuality.textContent = [
+    format(locale, "jobQualityLine", {
+      chars: currentJob.extraction?.textLength || currentJob.sourceText.length,
+      method: captureMethodLabel(currentJob.extraction?.method, locale),
+      confidence: Math.round((currentJob.extraction?.confidence || 0) * 100)
+    }),
+    removed ? format(locale, "filteredLines", { count: removed }) : ""
+  ].filter(Boolean).join(" ");
+  // Hovering shows exactly what was dropped. A filter you cannot inspect is one you
+  // cannot catch being wrong, and being wrong here changes the analysis.
+  fields.currentJobQuality.title = removed
+    ? `${t(locale, "filteredTitle")}\n${(currentJob.extraction?.removedSample || []).join("\n")}`
+    : "";
 }
 
 async function toggleRedactionPreview() {

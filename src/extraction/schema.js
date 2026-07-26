@@ -24,7 +24,7 @@ export const CAPTURE_METHODS = Object.freeze({
  * @property {string} url
  * @property {string} capturedAt
  * @property {string} sourceText
- * @property {{method:string, confidence:number, needsConfirmation:boolean, textLength?:number, contentFingerprint?:string, qualityReasons?:string[]}} extraction
+ * @property {{method:string, confidence:number, needsConfirmation:boolean, textLength?:number, contentFingerprint?:string, qualityReasons?:string[], removedLines?:number, removedSample?:string[]}} extraction
  */
 
 /**
@@ -54,7 +54,9 @@ export function createNormalizedJob(input = {}) {
       needsConfirmation: Boolean(input.extraction?.needsConfirmation),
       textLength: Number(input.extraction?.textLength ?? cleanSourceText(input.sourceText).length),
       contentFingerprint: cleanText(input.extraction?.contentFingerprint),
-      qualityReasons: Array.isArray(input.extraction?.qualityReasons) ? input.extraction.qualityReasons.map(cleanText).filter(Boolean) : []
+      qualityReasons: Array.isArray(input.extraction?.qualityReasons) ? input.extraction.qualityReasons.map(cleanText).filter(Boolean) : [],
+      removedLines: Number(input.extraction?.removedLines ?? 0),
+      removedSample: Array.isArray(input.extraction?.removedSample) ? input.extraction.removedSample.slice(0, 12).map((line) => cleanText(line).slice(0, 120)) : []
     }
   };
 }

@@ -84,6 +84,29 @@ export async function collectVisibleJobPage() {
 
   return best || collectJobPageNow();
 
+  /**
+   * Containers that are never the posting, removed before any text is read.
+   *
+   * Doing this in the page rather than on the text afterwards is strictly better
+   * where it applies: a "similar jobs" rail is one element, so it goes as a unit
+   * instead of line by line, and removing it before scoring also stops it inflating
+   * the score of a container that mostly is not the job.
+   *
+   * Every entry is a name that a job description is never given. Deliberately
+   * absent: [class*='sidebar'] and a bare [class*='related'] — job pages routinely
+   * put the salary, location and contract type in a sidebar, and losing those is
+   * exactly the silent damage this whole path is built to avoid.
+   */
+  const NOISE_SELECTOR = [
+    "script", "style", "noscript", "svg", "canvas", "iframe", "nav", "footer", "header", "form",
+    "[role='navigation']", "[role='banner']", "[role='contentinfo']", "[role='search']", "[role='dialog']", "[role='alertdialog']",
+    "[aria-hidden='true']", "[hidden]",
+    "[class*='cookie']", "[id*='cookie']", "[class*='consent']", "[class*='breadcrumb']",
+    "[class*='similar-job']", "[class*='similarJob']", "[class*='related-job']", "[class*='relatedJob']",
+    "[class*='recommended-job']", "[class*='recommendedJob']", "[class*='other-jobs']", "[class*='more-jobs']",
+    "[class*='social-share']", "[class*='newsletter']"
+  ].join(", ");
+
   function collectJobPageNow() {
     const selectors = [
       "[data-automation-id='jobPostingDescription']",
@@ -141,7 +164,7 @@ export async function collectVisibleJobPage() {
   function extractStructuredText(root) {
     if (!root) return "";
     const clone = root.cloneNode(true);
-    clone.querySelectorAll("script, style, noscript, svg, canvas, iframe, nav, footer, header, form").forEach((node) => node.remove());
+    clone.querySelectorAll(NOISE_SELECTOR).forEach((node) => node.remove());
     clone.querySelectorAll("br, p, li, dt, dd, h1, h2, h3, h4, h5, h6, section, article, tr, div").forEach((node) => {
       node.appendChild(document.createTextNode("\n"));
     });
