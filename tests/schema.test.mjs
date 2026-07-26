@@ -241,3 +241,17 @@ test("one omitted list does not throw away the whole analysis", () => {
   for (const key of ["requirements", "strengths", "gaps", "risks", "resumeTailoring", "interviewFocus", "uncertainties", "suggestedActions"]) hollow[key] = [];
   assert.throws(() => parseAgentEvidence(hollow, apiRequest()), (error) => error.code === "OUTPUT_UNTRUSTED");
 });
+
+test("effort is defined by the kind of work, not by a duration guess", async () => {
+  // It came back "one evening" almost every time: quick was written as a clock
+  // reading ("under thirty minutes") and evening had no criterion at all, so it was
+  // an unanchored middle, and a middle is what a model settles on. The levels are
+  // now separated by what closing the gaps actually requires.
+  const { buildAnalyzePrompt } = await import("../src/ai/prompts.js");
+  const prompt = buildAnalyzePrompt(apiRequest());
+  assert.match(prompt, /closable=before_apply/, "effort must be derived from the gaps already listed");
+  assert.match(prompt, /rewording, reordering or surfacing something the CV already contains/);
+  assert.match(prompt, /Do not settle on evening as a middle default/);
+  // strong_fit means the required areas are evidenced, so the work is wording.
+  assert.match(prompt, /alongside a strong_fit verdict is a contradiction/);
+});
