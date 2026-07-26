@@ -123,7 +123,16 @@ async function runAnthropic(request, fetchImpl) {
     headers: {
       "content-type": "application/json",
       "x-api-key": request.credential.apiKey,
-      "anthropic-version": "2023-06-01"
+      "anthropic-version": "2023-06-01",
+      // Anthropic refuses cross-origin requests without this, and a side panel is
+      // cross-origin: "CORS requests must set 'anthropic-dangerous-direct-browser-
+      // access' header". It is named for the case it usually enables — an API key
+      // shipped inside a public web page, where every visitor's browser exposes it.
+      // That is not this: the key is typed by its owner into their own panel, held
+      // in memory for the session, never stored and never sent anywhere but here.
+      // Confirmed against the live API: the preflight for /v1/messages returns this
+      // name in access-control-allow-headers alongside the other three.
+      "anthropic-dangerous-direct-browser-access": "true"
     },
     body: {
       model: model.id,

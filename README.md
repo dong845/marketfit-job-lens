@@ -86,7 +86,7 @@ What has actually been exercised against live APIs:
 | --- | --- |
 | OpenAI | Verified — repeated end-to-end runs against the real API |
 | DeepSeek | Verified working |
-| Anthropic | **Unverified** — code-complete and unit-tested, never run against the live endpoint |
+| Anthropic | **Partly verified** — direct browser access is confirmed against the live CORS preflight, after that requirement broke every request from the panel; a full analysis has still never been run |
 
 ## Further reading
 

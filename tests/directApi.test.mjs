@@ -363,3 +363,23 @@ test("an empty provider reply is retried exactly once, and nothing else is", asy
   await assert.rejects(() => garbage.client.runTask(apiRequest("deepseek-api", "deepseek-v4-flash")));
   assert.equal(garbage.calls(), 1, "invalid JSON must not be retried");
 });
+
+test("Anthropic is called with the header a browser origin requires", async () => {
+  // Without it the API refuses every request from the panel: "CORS requests must set
+  // 'anthropic-dangerous-direct-browser-access' header". Confirmed against the live
+  // preflight, which lists this name in access-control-allow-headers.
+  let headers;
+  const client = createDirectApiClient({
+    permissionsApi: { async contains() { return true; }, async request() { return true; } },
+    fetchImpl: async (url, options) => {
+      headers = options.headers;
+      return { ok: true, status: 200, async json() { return { content: [{ type: "text", text: JSON.stringify(validEvidence()) }] }; } };
+    }
+  });
+  await client.runTask(apiRequest("anthropic-api", "claude-sonnet-5"));
+  assert.equal(headers["anthropic-dangerous-direct-browser-access"], "true");
+  assert.equal(headers["anthropic-version"], "2023-06-01");
+  // The preflight allows exactly these four names; anything else fails CORS before
+  // the request is ever sent, and the failure would look like a network error.
+  assert.deepEqual(Object.keys(headers).sort(), ["anthropic-dangerous-direct-browser-access", "anthropic-version", "content-type", "x-api-key"]);
+});
