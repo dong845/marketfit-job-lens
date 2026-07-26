@@ -334,20 +334,26 @@ ok.push("no untranslated visible text in either page's markup");
 // for two days after the API retired those names, because nothing compared prose
 // against the registry. Documentation goes stale in exactly the way code does; the
 // difference is that only the code has anything watching it.
-const readme = readFileSync(join(root, "README.md"), "utf8");
-const providerRow = (name) => (readme.match(new RegExp(`^\\| ${name} \\|([^|]*)\\|`, "m")) || [, ""])[1];
+// Both translations, because the second one goes stale the same way the first did.
+const readmes = ["README.md", "README.zh-CN.md"].map((file) => [file, readFileSync(join(root, file), "utf8")]);
+const providerRow = (readme, name) => (readme.match(new RegExp(`^\\| ${name} \\|([^|]*)\\|`, "m")) || [, ""])[1];
 const modelLabels = (provider) => [...i18n.matchAll(/labelKey: "([^"]+)"/g)] && [...readFileSync(join(root, "src/ai/models.js"), "utf8")
   .matchAll(new RegExp(`provider: "${provider}",\\s*\\n\\s*labelKey: "([^"]+)"`, "g"))].map((m) => m[1]);
-for (const [provider, rowName] of [["openai-api", "OpenAI"], ["anthropic-api", "Anthropic"], ["deepseek-api", "DeepSeek"]]) {
-  const row = providerRow(rowName);
-  if (!row) { fail.push(`README has no model row for ${rowName}`); continue; }
-  for (const key of modelLabels(provider)) {
-    // The label carries a parenthetical hint the table omits; compare the name only.
-    const name = (block("en").has(key) ? (i18n.match(new RegExp(`${key}: "([^"(]+)`)) || [, key])[1] : key).trim();
-    if (!row.includes(name)) fail.push(`README lists no "${name}" for ${rowName} — the model table has drifted from the registry`);
+for (const [file, readme] of readmes) {
+  for (const [provider, rowName] of [["openai-api", "OpenAI"], ["anthropic-api", "Anthropic"], ["deepseek-api", "DeepSeek"]]) {
+    const row = providerRow(readme, rowName);
+    if (!row) { fail.push(`${file} has no model row for ${rowName}`); continue; }
+    for (const key of modelLabels(provider)) {
+      // The label carries a parenthetical hint the table omits; compare the name only.
+      const name = (block("en").has(key) ? (i18n.match(new RegExp(`${key}: "([^"(]+)`)) || [, key])[1] : key).trim();
+      if (!row.includes(name)) fail.push(`${file} lists no "${name}" for ${rowName} — the model table has drifted from the registry`);
+    }
   }
+  // Each translation has to be reachable from the other, or one of them is orphaned.
+  const other = file === "README.md" ? "README.zh-CN.md" : "README.md";
+  if (!readme.includes(`(${other})`)) fail.push(`${file} does not link to ${other}`);
 }
-ok.push("the README's model table matches the model registry");
+ok.push(`both READMEs' model tables match the registry and link to each other`);
 
 console.log(`\n${"=".repeat(64)}\nFAIL (${fail.length})`);
 fail.forEach((f) => console.log("  ✗ " + f));

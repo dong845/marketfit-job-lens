@@ -1,5 +1,7 @@
 # MarketFit Job Lens
 
+English · [简体中文](README.zh-CN.md)
+
 A Manifest V3 Chrome side panel that reads the job posting in your current tab, compares it against your PDF CV, and answers one question: **is this worth an evening?**
 
 Interface and analysis both available in English and 中文.
