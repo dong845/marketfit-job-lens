@@ -1,8 +1,8 @@
 # Chrome Web Store submission
 
 Everything the dashboard asks for, written out. Copy each block into the matching
-field. What only you can do is marked **[you]** — a developer account, a payment,
-and screenshots of your own screen cannot be produced from here.
+field. What only you can do is marked **[you]** — a developer account and a payment
+cannot be made on your behalf.
 
 ---
 
@@ -15,10 +15,17 @@ and screenshots of your own screen cannot be produced from here.
    **the repo is private**, so a link to it will 404 for the reviewer. Either make
    the repo public, or publish the file somewhere reachable (GitHub Pages on a
    public repo, a Gist, or any static host).
-3. **Take screenshots.** At least one, 1280×800 or 640×400 PNG. The panel is 390px
-   wide, so capture the browser window with the panel open beside a real job page.
-   Worth showing, in order: the verdict card with its count and effort, the stated
-   conditions with the question beneath one, and the numbered action list.
+3. ~~Take screenshots.~~ **Done** — four 1280×800 PNGs in `docs/store-screenshots/`,
+   two per language: the verdict view, and the requirements-and-actions view.
+
+   They are built from the shipping renderer and stylesheet with **invented data**,
+   by `scripts/build-store-screenshots.mjs`. That is deliberate on two counts: a
+   screenshot of a real run would publish your own CV — name, employers, dates — to
+   everyone who opens the listing, and a hand-captured image goes stale the moment
+   the panel changes. Regenerate rather than re-crop.
+
+   Upload the two English ones under the English listing and the two Chinese ones
+   under 中文.
 
 ---
 
