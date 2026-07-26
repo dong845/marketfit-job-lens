@@ -195,11 +195,9 @@ async function resolveJobForAnalysis() {
   return captureCurrentJob();
 }
 
+/** What the payload preview needs, and nothing else. */
 function getProfile() {
-  return {
-    cvText: resume?.text || "", targetRole: "", languages: "", constraints: "", roleValue: 3,
-    authorization: { country: fields.market.value, statusType: fields.workAuthorization.value, futureSponsorshipNeed: ["needs_sponsorship", "student_or_graduate"].includes(fields.workAuthorization.value), clearances: "", licenses: "", route: "", restrictions: "" }
-  };
+  return { cvText: resume?.text || "" };
 }
 
 async function clearSession() {
@@ -532,7 +530,7 @@ async function runAgentReview() {
         },
         // The market selector was collected and never sent — a control that looked
         // like it personalised the analysis and did nothing.
-        candidate: { targetRole: "", workAuthorization: fields.workAuthorization.value, targetMarket: fields.market.value, languages: [] }
+        candidate: { workAuthorization: fields.workAuthorization.value, targetMarket: fields.market.value }
       }
     };
     const model = fields.apiModel.value;

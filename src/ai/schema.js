@@ -349,11 +349,14 @@ export function parseTaskRequest(value) {
         salary: optionalText(job.salary, "job.salary", 240),
         url: optionalText(job.url, "job.url", 1200)
       },
+      // Only what a prompt instruction actually consumes. targetRole and languages
+      // were sent on every request, hardcoded empty, and read by nothing — a payload
+      // field no instruction mentions is indistinguishable from one the model was
+      // told to ignore. Language requirements are matched from the CV like any other
+      // requirement, so nothing was lost by dropping the field.
       candidate: {
-        targetRole: optionalText(candidate.targetRole, "candidate.targetRole", 240),
         workAuthorization: optionalText(candidate.workAuthorization, "candidate.workAuthorization", 80),
-        targetMarket: optionalText(candidate.targetMarket, "candidate.targetMarket", 8),
-        languages: arrayOfText(candidate.languages || [], "candidate.languages", 20, 80)
+        targetMarket: optionalText(candidate.targetMarket, "candidate.targetMarket", 8)
       }
     }
   };
