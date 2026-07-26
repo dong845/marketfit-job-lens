@@ -33,7 +33,7 @@ export const MESSAGES = {
     authHelpAuthorized: "You can already work in that market without the employer doing anything — citizen, permanent resident, or a permit already in hand.",
     authHelpNeedsSponsorship: "The employer would have to apply for a work visa for you before you could start.",
     authHelpOpenWorkPermit: "You hold a permit that is not tied to one employer, so you can start directly — often with an expiry date.",
-    authHelpStudentGraduate: "You work on a student or post-study route, such as a graduate visa. Usually time-limited and sometimes hour-limited.",
+    authHelpStudentOrGraduate: "You work on a student or post-study route, such as a graduate visa. Usually time-limited and sometimes hour-limited.",
     authHelpTemporaryRoute: "Another time-limited or conditional status.",
     authHelpUnknown: "Not used in the analysis. Pick your actual situation and stated conditions will be checked against it.",
     statedConditions: "Conditions the employer states", conditionSponsorship: "Sponsorship", conditionWorkAuthorization: "Work authorization", conditionCitizenship: "Citizenship", conditionClearance: "Clearance", conditionOnsiteLocation: "On-site", conditionLicence: "Licence", conditionOther: "Condition", conditionNote: "Quoted from the posting. Check it against your own situation before applying.",
@@ -112,7 +112,7 @@ export const MESSAGES = {
     authHelpAuthorized: "你在该市场已经可以直接工作，雇主不需要为你做任何事——本国公民、永久居留，或已经拿到的工作许可。",
     authHelpNeedsSponsorship: "你需要雇主先为你申请工作签证，才能入职。",
     authHelpOpenWorkPermit: "你持有不绑定单一雇主的工作许可，可以直接入职，通常有有效期。",
-    authHelpStudentGraduate: "你靠学生签或毕业生路径工作，例如毕业生签证。通常有时限，有时还有工时限制。",
+    authHelpStudentOrGraduate: "你靠学生签或毕业生路径工作，例如毕业生签证。通常有时限，有时还有工时限制。",
     authHelpTemporaryRoute: "其他有时限或附条件的身份。",
     authHelpUnknown: "不参与分析。选择你的真实情况后，雇主写明的条件才会与它对照。",
     statedConditions: "雇主明确写出的条件", conditionSponsorship: "签证担保", conditionWorkAuthorization: "工作授权", conditionCitizenship: "国籍", conditionClearance: "安全审查", conditionOnsiteLocation: "现场办公", conditionLicence: "执照资质", conditionOther: "其他条件", conditionNote: "以上为职位页面原文所述。投递前请对照你自己的情况核实。",
@@ -183,6 +183,20 @@ export function errorText(locale, error, fallbackKey = "analysisFailed") {
   // language it was asked for; passing it through beats replacing it with a generic.
   if (error?.message) return error.message;
   return t(locale, fallbackKey);
+}
+
+/**
+ * The i18n key for one option of a select: optionKey("authHelp", "student_or_graduate")
+ * is "authHelpStudentOrGraduate".
+ *
+ * Exported so the panel and the tests derive keys with the same code rather than
+ * two copies of the same regex. They had drifted by one word — the panel asked for
+ * authHelpStudentOrGraduate while the string was filed under authHelpStudentGraduate
+ * — and t() answers a missing key with the key itself, so the raw name rendered on
+ * screen and nothing failed.
+ */
+export function optionKey(prefix, value) {
+  return prefix + String(value ?? "").replace(/(^|_)([a-z])/g, (_, __, letter) => letter.toUpperCase());
 }
 
 export function format(locale, key, values = {}) {

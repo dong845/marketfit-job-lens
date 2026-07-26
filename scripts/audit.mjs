@@ -96,17 +96,60 @@ for (const f of consumers) {
 // people to ignore this warning; that is worse than not having it.
 const view = readFileSync(join(root, "src/ui/analysisView.js"), "utf8");
 for (const m of view.matchAll(/"([A-Za-z][A-Za-z0-9]*)"/g)) if (en.has(m[1])) usedKeys.add(m[1]);
-// `${keyFn(x)}Sub` reaches every key ending in that suffix, and `prefix${value}`
-// reaches every key starting with it — both shapes appear in the renderer.
-for (const m of view.matchAll(/\$\{[^}]+\}([A-Za-z][A-Za-z0-9]*)`/g)) {
-  for (const key of en) if (key.endsWith(m[1])) usedKeys.add(key);
+// Keys assembled around a lookup value, derived exactly from the lookup itself.
+// A suffix rule ("anything ending in Sub counts as used") hides the case where the
+// key that gets built does not exist, which is the failure this must catch.
+const mapValues = (name) => {
+  const start = view.indexOf(name);
+  if (start < 0) return [];
+  return [...view.slice(start, view.indexOf("}", start)).matchAll(/"([A-Za-z][A-Za-z0-9]*)"/g)].map((m) => m[1]);
+};
+const mapKeys = (name) => {
+  const start = view.indexOf(name);
+  if (start < 0) return [];
+  return [...view.slice(start, view.indexOf("}", start)).matchAll(/([a-z_]+):/g)].map((m) => m[1]);
+};
+const derived = [
+  ...mapValues("function verdictKey").map((key) => `${key}Sub`),
+  ...mapKeys("const ALIGNMENT_TONE").map((value) => `alignment${value[0].toUpperCase()}${value.slice(1)}`)
+];
+for (const key of derived) {
+  usedKeys.add(key);
+  const missing = ["en", "zh"].filter((loc) => !block(loc).has(key));
+  if (missing.length) fail.push(`the renderer builds "${key}" but it is missing from ${missing.join("/")} — the raw key would render`);
 }
-for (const source of [view, readFileSync(join(root, "src/sidepanel/sidepanel.js"), "utf8")]) {
-  for (const m of source.matchAll(/`([A-Za-z][A-Za-z0-9]*)\$\{/g)) {
-    for (const key of en) if (key.startsWith(m[1]) && key !== m[1]) usedKeys.add(key);
+// Keys built per option with optionKey(prefix, value). Derived exactly rather than
+// matched by prefix: the loose version marked every authHelp* key as used, which
+// meant a string filed one word off from the value that reaches it — and therefore
+// never reachable — still counted as consumed. t() answers a missing key with the
+// key itself, so it rendered "authHelpStudentOrGraduate" on screen and no check fired.
+const panelSource = readFileSync(join(root, "src/sidepanel/sidepanel.js"), "utf8");
+const panelHtml = readFileSync(join(root, "src/sidepanel/sidepanel.html"), "utf8");
+const camel = (value) => String(value).replace(/(^|_)([a-z])/g, (_, __, letter) => letter.toUpperCase());
+const optionValuesOf = (selectId) => {
+  const start = panelHtml.indexOf(`id="${selectId}"`);
+  if (start < 0) return [];
+  return [...panelHtml.slice(start, panelHtml.indexOf("</select>", start)).matchAll(/<option value="([^"]*)"/g)]
+    .map((m) => m[1]).filter(Boolean);
+};
+for (const [prefix, selectId] of [["authHelp", "workAuthorization"], ["apiKeyHelp", "agentProvider"]]) {
+  if (!panelSource.includes(`optionKey("${prefix}"`)) continue;
+  for (const value of optionValuesOf(selectId)) {
+    const key = prefix + camel(value.replaceAll("-", "_"));
+    usedKeys.add(key);
+    const missing = ["en", "zh"].filter((loc) => !block(loc).has(key));
+    if (missing.length) fail.push(`select #${selectId} option "${value}" needs ${key}, missing from ${missing.join("/")} — the raw key would render`);
   }
 }
 for (const m of readFileSync(join(root, "src/ai/models.js"), "utf8").matchAll(/labelKey: "([^"]+)"/g)) usedKeys.add(m[1]);
+// t("typo") renders "typo" rather than failing, so every literal key referenced
+// anywhere must actually exist. This is the backstop under all the rules above.
+for (const f of consumers) {
+  const src = readFileSync(join(root, f), "utf8");
+  for (const m of src.matchAll(/\b(?:t|format)\(\w+,\s*"([A-Za-z][A-Za-z0-9_]*)"/g)) {
+    if (!en.has(m[1])) fail.push(`${f}: t("${m[1]}") has no such string — the raw key would render`);
+  }
+}
 ok.push(`i18n: ${en.size} keys, en/zh in sync`);
 
 // ---- 5. no secrets, debug output, or unfinished markers in shipped code

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { MESSAGES, errorText, t } from "../src/ui/i18n.js";
+import { MESSAGES, errorText, optionKey, t } from "../src/ui/i18n.js";
 import { DirectApiError } from "../src/ai/directApiClient.js";
 import { ResumePdfError } from "../src/profile/pdfValidation.js";
 import { BridgeError } from "../src/ai/schema.js";
@@ -101,4 +101,37 @@ test("evidence block IDs never reach the prose the reader sees", async () => {
   // Grounding is untouched: the refs still travel in the evidence arrays.
   assert.equal(parsed.requirements[0].evidence[0].ref, "CV-001");
   assert.match(parsed.requirements[0].evidence[0].quote, /PyTorch/);
+});
+
+test("every option of every select resolves to a real string, in both languages", async () => {
+  // t() answers a missing key with the key itself, so a key built one word off from
+  // the value that reaches it renders as "authHelpStudentOrGraduate" on screen and
+  // throws nothing. This walks the actual markup rather than a remembered list.
+  const { readFileSync } = await import("node:fs");
+  const { optionKey } = await import("../src/ui/i18n.js");
+  const html = readFileSync(new URL("../src/sidepanel/sidepanel.html", import.meta.url), "utf8");
+  const optionsOf = (selectId) => {
+    const start = html.indexOf(`id="${selectId}"`);
+    assert.ok(start > 0, `no select #${selectId}`);
+    return [...html.slice(start, html.indexOf("</select>", start)).matchAll(/<option value="([^"]*)"/g)]
+      .map((match) => match[1]).filter(Boolean);
+  };
+
+  for (const [prefix, selectId] of [["authHelp", "workAuthorization"], ["apiKeyHelp", "agentProvider"]]) {
+    const values = optionsOf(selectId);
+    assert.ok(values.length >= 3, `#${selectId} should offer options`);
+    for (const value of values) {
+      const key = optionKey(prefix, value.replaceAll("-", "_"));
+      for (const locale of ["en", "zh"]) {
+        assert.notEqual(t(locale, key), key, `#${selectId} option "${value}" has no ${locale} text (${key})`);
+      }
+    }
+  }
+});
+
+test("optionKey builds the same name the panel asks for", () => {
+  assert.equal(optionKey("authHelp", "student_or_graduate"), "authHelpStudentOrGraduate");
+  assert.equal(optionKey("authHelp", "unknown"), "authHelpUnknown");
+  assert.equal(optionKey("method", "schema_org_jsonld"), "methodSchemaOrgJsonld");
+  assert.equal(optionKey("apiKeyHelp", "openai_api"), "apiKeyHelpOpenaiApi");
 });

@@ -4,7 +4,7 @@ import { createDirectApiClient } from "../ai/directApiClient.js";
 import { buildRemoteTransmissionPreview } from "../privacy/redaction.js";
 import { API_PROVIDERS, MODELS, PROVIDER_CONSOLES, modelsForProvider } from "../ai/models.js";
 import { configurePdfWorker, extractResumePdf } from "../profile/pdfResume.js";
-import { applyTranslations, errorText, format, t } from "../ui/i18n.js";
+import { applyTranslations, errorText, format, optionKey, t } from "../ui/i18n.js";
 import { escapeHtml, renderAnalysisHtml } from "../ui/analysisView.js";
 import { LATEST_KEY, buildReportPayload, expiredReportKeys, reportKey, reportUrl, storedReportKeys } from "../report/payload.js";
 
@@ -118,7 +118,7 @@ async function loadResumePdf() {
  * wrong pick costs the reader a job they could have taken.
  */
 function renderProfileHelp() {
-  const authKey = `authHelp${fields.workAuthorization.value.replace(/(^|_)([a-z])/g, (_, __, letter) => letter.toUpperCase())}`;
+  const authKey = optionKey("authHelp", fields.workAuthorization.value);
   fields.marketHelp.textContent = t(locale, "marketHelp");
   fields.workAuthorizationHelp.textContent = t(locale, authKey);
 }
@@ -236,7 +236,7 @@ function providerLabelKey(provider) {
 
 function captureMethodLabel(method, uiLocale) {
   if (!method) return t(uiLocale, "unknown");
-  const key = `method${method.replace(/(^|_)([a-z])/g, (_, __, letter) => letter.toUpperCase())}`;
+  const key = optionKey("method", method);
   const label = t(uiLocale, key);
   return label === key ? method : label;
 }
@@ -435,7 +435,7 @@ async function grantProviderAccess() {
  */
 function renderApiKeyHelp(provider) {
   const console = PROVIDER_CONSOLES[provider];
-  const helpKey = `apiKeyHelp${provider.replace(/(^|-)([a-z])/g, (_, __, letter) => letter.toUpperCase())}`;
+  const helpKey = optionKey("apiKeyHelp", provider.replaceAll("-", "_"));
   fields.apiKeyHelp.replaceChildren();
   fields.apiKeyHelp.append(`${t(locale, helpKey)} ${t(locale, "apiKeyOnceOnly")} ${t(locale, "apiKeyWhere")} `);
   if (!console) return;
