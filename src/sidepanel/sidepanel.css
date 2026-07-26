@@ -55,6 +55,13 @@ button:disabled { cursor: wait; opacity: .65; }
 .secondary, .quiet { background: var(--soft-teal); color: #164850; }.quiet { background: #eef2f4; color: var(--ink); }
 .icon-command { align-items: center; display: inline-flex; font-size: 17px; justify-content: center; min-width: 34px; padding: 0; }
 .file-status { color: var(--muted); font-size: 12px; line-height: 1.45; min-height: 18px; }
+.file-field { display: grid; gap: 5px; }
+.field-caption { color: var(--muted); font-size: 12px; font-weight: 650; }
+/* Clipped rather than display:none, so the input keeps its place in the tab order
+   and Enter still opens the picker. */
+.visually-hidden { clip: rect(0 0 0 0); clip-path: inset(50%); height: 1px; overflow: hidden; position: absolute; white-space: nowrap; width: 1px; }
+.file-button { align-items: center; border-radius: 6px; cursor: pointer; display: inline-flex; font-weight: 700; justify-content: center; min-height: 34px; padding: 0 12px; }
+.visually-hidden:focus-visible + .file-button { box-shadow: 0 0 0 3px rgba(18, 109, 117, .22); outline: 2px solid var(--accent); outline-offset: 1px; }
 .job-summary { background: var(--soft-teal); border-left: 3px solid var(--accent); display: grid; gap: 4px; padding: 10px; }.job-summary h2 { color: #21464b; }
 .summary-actions { display: flex; flex: 0 0 auto; gap: 4px; }
 .summary-actions .icon-command { background: rgba(255,255,255,.72); min-height: 28px; min-width: 28px; }

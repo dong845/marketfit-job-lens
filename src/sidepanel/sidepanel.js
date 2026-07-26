@@ -18,7 +18,7 @@ const fields = {
   redactionPreview: byId("redactionPreview"), agentProvider: byId("agentProvider"), apiKey: byId("apiKey"), apiProviderMode: byId("apiProviderMode"),
   apiModel: byId("apiModel"), apiKeyHelp: byId("apiKeyHelp"), apiKeyWarning: byId("apiKeyWarning"), accessRetryRow: byId("accessRetryRow"), jobEditorPanel: byId("jobEditorPanel"), jobTextEditor: byId("jobTextEditor"),
   marketHelp: byId("marketHelp"), workAuthorizationHelp: byId("workAuthorizationHelp"), jobTitleInput: byId("jobTitleInput"), jobCompanyInput: byId("jobCompanyInput"), jobLocationInput: byId("jobLocationInput"), appVersion: byId("appVersion"),
-  reportRow: byId("reportRow"), openReport: byId("openReport"), runProgress: byId("runProgress")
+  cvPdfButton: byId("cvPdfButton"), reportRow: byId("reportRow"), openReport: byId("openReport"), runProgress: byId("runProgress")
 };
 const directApiClient = createDirectApiClient();
 let resume = null;
@@ -124,6 +124,8 @@ function renderProfileHelp() {
 }
 
 function renderResumeStatus() {
+  // The button doubles as the state: once a CV is loaded, its job is to replace it.
+  fields.cvPdfButton.textContent = t(locale, resume ? "changeFile" : "chooseFile");
   if (!resume) {
     fields.cvFileStatus.textContent = t(locale, "noResume");
     return;

@@ -1,5 +1,5 @@
 import { escapeHtml, renderAnalysisHtml } from "../ui/analysisView.js";
-import { t } from "../ui/i18n.js";
+import { applyTranslations, t } from "../ui/i18n.js";
 import { readReport } from "./payload.js";
 
 const LOCALE_KEY = "marketfit.locale.v1";
@@ -19,6 +19,9 @@ async function render() {
   // Read the saved interface language first: the failure messages below are shown
   // before any payload exists, and would otherwise always be English.
   const uiLocale = await savedLocale();
+  // The page ships with English markup and never ran a translation pass, so the
+  // loading line stayed English no matter which language the panel was set to.
+  applyTranslations(document, uiLocale);
 
   let payload;
   try {

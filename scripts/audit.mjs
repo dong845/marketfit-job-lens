@@ -149,6 +149,11 @@ for (const f of consumers) {
   for (const m of src.matchAll(/\b(?:t|format)\(\w+,\s*"([A-Za-z][A-Za-z0-9_]*)"/g)) {
     if (!en.has(m[1])) fail.push(`${f}: t("${m[1]}") has no such string — the raw key would render`);
   }
+  // applyTranslations assigns textContent from the key, so a mistyped data-i18n
+  // prints the key on screen exactly the same way a mistyped t() call does.
+  for (const m of src.matchAll(/data-i18n(?:-title|-placeholder)?="([^"]+)"/g)) {
+    if (!en.has(m[1])) fail.push(`${f}: data-i18n="${m[1]}" has no such string — the raw key would render`);
+  }
 }
 ok.push(`i18n: ${en.size} keys, en/zh in sync`);
 
@@ -302,6 +307,27 @@ if (returnAt > 0) {
   }
 }
 ok.push("the injected page extractor initialises everything it reads");
+
+// ---- 12. no visible English left in the markup itself
+// The i18n checks all compare strings that ARE in i18n.js. Text hardcoded in HTML
+// with no data-i18n never enters that set, so seven country names sat untranslated
+// in the market dropdown while every language check passed.
+const TRANSLATION_EXEMPT = [
+  /^MarketFit/,                       // the product name
+  /^(English|中文)$/,                  // language names are shown in their own language
+  /^(activeTab|scripting|storage|sidePanel|tabs)$/ // literal Chrome permission ids
+];
+for (const page of ["src/sidepanel/sidepanel.html", "src/report/report.html"]) {
+  const markup = readFileSync(join(root, page), "utf8");
+  // Anything inside an element that carries data-i18n is replaced at runtime.
+  const unmarked = markup.replace(/<(\w+)([^>]*\bdata-i18n(?:-title|-placeholder)?="[^"]*"[^>]*)>[\s\S]*?<\/\1>/g, " ");
+  for (const m of unmarked.matchAll(/>([^<>{}]*[A-Za-z]{3,}[^<>]*)</g)) {
+    const text = m[1].trim();
+    if (!text || TRANSLATION_EXEMPT.some((pattern) => pattern.test(text))) continue;
+    fail.push(`${page}: "${text.slice(0, 48)}" has no data-i18n, so it stays English in Chinese`);
+  }
+}
+ok.push("no untranslated visible text in either page's markup");
 
 console.log(`\n${"=".repeat(64)}\nFAIL (${fail.length})`);
 fail.forEach((f) => console.log("  ✗ " + f));

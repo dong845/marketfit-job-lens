@@ -89,3 +89,13 @@ test("a failed re-run retracts the previous run's report offer", () => {
   assert.ok(cleared < shown, "it must be retracted before the run, not after it succeeds");
   assert.match(review, /lastRunContext = null;/);
 });
+
+test("the report page translates its own markup before anything else", () => {
+  // It shipped with English markup and never ran a translation pass, so "Loading
+  // report…" stayed English however the panel was set. The locale has to be read
+  // first, because this runs before any payload exists.
+  assert.match(script, /applyTranslations\(document, uiLocale\)/);
+  const order = script.indexOf("await savedLocale()") < script.indexOf("applyTranslations(document, uiLocale)");
+  assert.ok(order, "the locale must be known before the markup is translated");
+  assert.match(html, /data-i18n="reportLoading"/);
+});

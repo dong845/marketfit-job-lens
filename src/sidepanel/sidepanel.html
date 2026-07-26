@@ -11,7 +11,7 @@
       <header class="topbar">
         <!-- data-i18n sits on the inner span: applyTranslations assigns textContent,
              which on the h1 deleted the version badge nested inside it. -->
-        <div><h1><span data-i18n="appTitle">MarketFit</span> <span id="appVersion" class="version"></span></h1><p id="status" role="status">Ready</p></div>
+        <div><h1><span data-i18n="appTitle">MarketFit</span> <span id="appVersion" class="version"></span></h1><p id="status" role="status" data-i18n="statusReady">Ready</p></div>
         <label class="language-select"><span data-i18n="language">Language</span><select id="interfaceLanguage"><option value="en">English</option><option value="zh">中文</option></select></label>
       </header>
 
@@ -20,11 +20,18 @@
       <section class="panel" aria-labelledby="profileTitle">
         <div class="panel-head"><h2 id="profileTitle" data-i18n="profile">Your profile</h2><button id="clearSession" class="quiet icon-command" type="button" data-i18n-title="clearSession">&#10005;</button></div>
         <div class="panel-body">
-          <label><span data-i18n="resumePdf">CV PDF</span><input id="cvPdf" type="file" accept="application/pdf,.pdf" /></label>
+          <div class="file-field">
+            <span class="field-caption" data-i18n="resumePdf">CV PDF</span>
+            <!-- A native file input renders "Choose File" from the BROWSER's locale,
+                 which this panel cannot set. The input stays focusable but visually
+                 hidden so keyboard use is unchanged, and the label is the button. -->
+            <input id="cvPdf" type="file" accept="application/pdf,.pdf" class="visually-hidden" />
+            <label id="cvPdfButton" for="cvPdf" class="secondary file-button" data-i18n="chooseFile">Choose a PDF</label>
+          </div>
           <p id="cvFileStatus" class="file-status"></p>
           <p class="help" data-i18n="uploadHint">1. Upload a text-based PDF resume. 2. Open a full job posting tab, choose an AI provider, then run AI analysis.</p>
           <div class="field-grid">
-            <label><span data-i18n="market">Target market</span><select id="market"><option value="US">United States</option><option value="UK">United Kingdom</option><option value="CA">Canada</option><option value="AU">Australia</option><option value="NL">Netherlands</option><option value="SG">Singapore</option><option value="CN">中国</option></select></label>
+            <label><span data-i18n="market">Target market</span><select id="market"><option value="US" data-i18n="marketUS">United States</option><option value="UK" data-i18n="marketUK">United Kingdom</option><option value="CA" data-i18n="marketCA">Canada</option><option value="AU" data-i18n="marketAU">Australia</option><option value="NL" data-i18n="marketNL">Netherlands</option><option value="SG" data-i18n="marketSG">Singapore</option><option value="CN" data-i18n="marketCN">China</option></select></label>
             <label><span data-i18n="workAuthorization">Work authorization</span><select id="workAuthorization"><option value="authorized" data-i18n="authorized">Already authorized</option><option value="needs_sponsorship" data-i18n="needsSponsorship">Needs sponsorship</option><option value="open_work_permit" data-i18n="openWorkPermit">Open work permit</option><option value="student_or_graduate" data-i18n="studentGraduate">Student or graduate route</option><option value="temporary_route" data-i18n="temporaryRoute">Other temporary route</option><option value="unknown" selected data-i18n="unknown">Unknown</option></select></label>
           </div>
           <!-- Which option to pick is not obvious, and picking the wrong one now
