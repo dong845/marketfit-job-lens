@@ -14,7 +14,7 @@ const manifest = JSON.parse(readFileSync(join(root, "manifest.json"), "utf8"));
 assert.deepEqual([...manifest.permissions].sort(), ["activeTab", "scripting", "sidePanel", "storage", "tabs"].sort());
 // No local bridge any more, so no loopback host permission is needed.
 assert.equal("host_permissions" in manifest, false, "The extension must not request host permissions up front.");
-assert.deepEqual(manifest.optional_host_permissions, ["http://*/*", "https://*/*"], "Website access must remain optional and requested per site.");
+assert.deepEqual(manifest.optional_host_permissions, ["https://*/*"], "Website access must remain optional and requested per site.");
 
 // The extension must not grow a second, non-AI scoring path: a keyword matcher
 // presented as career advice is worse than no answer. Analysis comes from the
