@@ -21,7 +21,7 @@ export function extractOpenAiJsonPayload(payload) {
     collectTextByTypes(payload, new Set(["output_text", "text"])),
     collectChatCompletionText(payload)
   ].filter(Boolean).join("\n").trim();
-  if (!text) throw new BridgeError("OUTPUT_UNTRUSTED", "The AI provider returned no JSON text.", 502);
+  if (!text) throw new BridgeError("OUTPUT_EMPTY", "The AI provider returned no text at all.", 502);
   return text;
 }
 
@@ -32,7 +32,7 @@ export function extractAnthropicJsonPayload(payload) {
   const refusal = String(payload?.stop_reason || "").includes("refusal") ? collectAnthropicText(payload) : "";
   if (refusal) throw new BridgeError("PROVIDER_REFUSED", refusal.slice(0, 500), 502);
   const text = collectAnthropicText(payload);
-  if (!text) throw new BridgeError("OUTPUT_UNTRUSTED", "The AI provider returned no JSON text.", 502);
+  if (!text) throw new BridgeError("OUTPUT_EMPTY", "The AI provider returned no text at all.", 502);
   return text;
 }
 

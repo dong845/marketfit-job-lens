@@ -64,7 +64,7 @@ export function createDirectApiClient({ fetchImpl = globalThis.fetch, permission
       }
       const run = { "openai-api": runOpenAi, "anthropic-api": runAnthropic, "deepseek-api": runDeepSeek }[request.provider];
       if (!run) throw new DirectApiError("This provider is not supported.", "providerUnsupported");
-      const result = await run(request, fetchImpl);
+      const result = await withEmptyOutputRetry(() => run(request, fetchImpl));
       return {
         requestId: request.requestId,
         status: "completed",
@@ -154,11 +154,37 @@ async function runDeepSeek(request, fetchImpl) {
         { role: "system", content: AGENT_SYSTEM_POLICY },
         { role: "user", content: buildAnalyzePrompt(request) }
       ],
+      // Thinking defaults to enabled on V4, at effort "high", and the chain of
+      // thought comes back in reasoning_content rather than content. DeepSeek
+      // documents that json_object "may occasionally return empty content" — and an
+      // empty content field is exactly what this path cannot use, since the answer
+      // is the JSON. The retired deepseek-chat was the non-thinking mode of
+      // v4-flash, so turning it off restores the shape that was working.
+      ...(model.thinking === false ? { thinking: { type: "disabled" } } : {}),
       ...(model.jsonObjectMode ? { response_format: { type: "json_object" } } : {})
     },
     withoutStructuredOutput: ({ response_format: _dropped, ...body }) => body
   });
   return parseAgentEvidence(parseJsonOutput(extractOpenAiJsonPayload(payload)), request);
+}
+
+/**
+ * Runs a task, retrying once if the provider answered with nothing at all.
+ *
+ * DeepSeek documents that JSON output "may occasionally return empty content", and
+ * an empty content field is unusable here because the answer IS the JSON. The call
+ * was billed either way, so a single retry turns a wasted charge into an analysis;
+ * bounded at one because a provider that is genuinely down should fail, not loop.
+ * Only emptiness is retried — invalid JSON and truncation are answers, and repeating
+ * the request would produce the same one at twice the price.
+ */
+async function withEmptyOutputRetry(run) {
+  try {
+    return await run();
+  } catch (error) {
+    if (error?.code !== "OUTPUT_EMPTY") throw error;
+    return run();
+  }
 }
 
 /**

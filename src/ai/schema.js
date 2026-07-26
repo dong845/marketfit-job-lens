@@ -422,7 +422,7 @@ export function parseJsonOutput(value) {
 
 export function extractJsonText(value) {
   const text = String(value || "").trim();
-  if (!text) throw new BridgeError("OUTPUT_UNTRUSTED", "Provider returned no JSON text.");
+  if (!text) throw new BridgeError("OUTPUT_EMPTY", "Provider returned no text at all.");
   if (text.startsWith("```")) {
     const stripped = text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
     if (stripped.startsWith("{")) return stripped;

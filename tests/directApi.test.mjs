@@ -308,3 +308,58 @@ test("a body that never arrives is still bounded by the request timeout", async 
   assert.equal((send.match(/clearTimeout\(timer\)/g) || []).length, 1);
   assert.ok(send.indexOf("await response.json()") < send.indexOf("clearTimeout(timer)"), "the body must be read while the deadline still applies");
 });
+
+test("DeepSeek is asked not to think, because the answer has to be the JSON", async () => {
+  // Thinking defaults to enabled on V4 and its output goes to reasoning_content, not
+  // content — and DeepSeek documents that JSON mode "may occasionally return empty
+  // content". The retired deepseek-chat was this model's non-thinking mode, which is
+  // the configuration that was working before the rename.
+  const sent = [];
+  const client = createDirectApiClient({
+    permissionsApi: { async contains() { return true; }, async request() { return true; } },
+    fetchImpl: async (url, options) => {
+      sent.push(JSON.parse(options.body));
+      return { ok: true, status: 200, async json() { return { choices: [{ message: { content: JSON.stringify(validEvidence()) } }] }; } };
+    }
+  });
+  await client.runTask(apiRequest("deepseek-api", "deepseek-v4-flash"));
+  assert.deepEqual(sent[0].thinking, { type: "disabled" });
+  assert.deepEqual(sent[0].response_format, { type: "json_object" });
+  assert.equal(sent[0].model, "deepseek-v4-flash");
+});
+
+test("an empty provider reply is retried exactly once, and nothing else is", async () => {
+  const attempt = (replies) => {
+    let calls = 0;
+    const client = createDirectApiClient({
+      permissionsApi: { async contains() { return true; }, async request() { return true; } },
+      fetchImpl: async () => {
+        const reply = replies[Math.min(calls, replies.length - 1)];
+        calls += 1;
+        return { ok: true, status: 200, async json() { return reply; } };
+      }
+    });
+    return { client, calls: () => calls };
+  };
+
+  // Empty first, real answer second: the user gets the analysis they already paid for.
+  const empty = { choices: [{ message: { content: "" } }] };
+  const answered = { choices: [{ message: { content: JSON.stringify(validEvidence()) } }] };
+  const recovering = attempt([empty, answered]);
+  const response = await recovering.client.runTask(apiRequest("deepseek-api", "deepseek-v4-flash"));
+  assert.ok(response.result, "the retry's answer must be used");
+  assert.equal(recovering.calls(), 2);
+
+  // Empty twice: it fails rather than looping, and says the response was empty.
+  const persistent = attempt([empty]);
+  await assert.rejects(
+    () => persistent.client.runTask(apiRequest("deepseek-api", "deepseek-v4-flash")),
+    (error) => error.code === "OUTPUT_EMPTY"
+  );
+  assert.equal(persistent.calls(), 2, "one retry, not a loop");
+
+  // Malformed JSON is an answer, not an absence: repeating it costs twice for the same result.
+  const garbage = attempt([{ choices: [{ message: { content: "not json at all" } }] }]);
+  await assert.rejects(() => garbage.client.runTask(apiRequest("deepseek-api", "deepseek-v4-flash")));
+  assert.equal(garbage.calls(), 1, "invalid JSON must not be retried");
+});

@@ -78,7 +78,8 @@ export const MODELS = Object.freeze({
   // Verified against api-docs.deepseek.com/quick_start/pricing on 2026-07-26:
   // 1M context, 384K maximum output, JSON output supported on both.
   "deepseek-v4-flash": {
-    typicalSeconds: 75,
+    typicalSeconds: 60,
+    thinking: false,
     provider: "deepseek-api",
     labelKey: "deepseekV4Flash",
     maxOutputTokens: 24000,
@@ -86,7 +87,8 @@ export const MODELS = Object.freeze({
     jsonObjectMode: true
   },
   "deepseek-v4-pro": {
-    typicalSeconds: 120,
+    typicalSeconds: 90,
+    thinking: false,
     provider: "deepseek-api",
     labelKey: "deepseekV4Pro",
     maxOutputTokens: 24000,
