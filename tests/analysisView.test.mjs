@@ -253,6 +253,7 @@ test("the coverage bar shows the counted requirements and claims nothing more", 
   // would be invented. The bar is the three counts drawn to scale — same data as the
   // line beneath it, readable without being read, and no number that is not counted.
   const html = renderAnalysisHtml(evidenceFixture({
+    recommendation: { verdict: "stretch", headline: "h", rationale: "r" },
     requirements: [
       { name: "A", level: "required", match: "strong", explanation: "x", evidence: [] },
       { name: "B", level: "required", match: "partial", explanation: "x", evidence: [] },
@@ -267,15 +268,22 @@ test("the coverage bar shows the counted requirements and claims nothing more", 
   assert.match(html, /coverage-fill tone-warn" style="flex:1"/);
   assert.match(html, /coverage-fill tone-bad" style="flex:2"/);
   assert.match(html, /4 required areas · 1 evidenced · 1 partial · 2 missing/);
-  // No percentage anywhere: there is no honest one to compute.
-  assert.equal(/\d+%/.test(html), false, "a match percentage would be an invented weighting");
+  // No percentage in the coverage element itself. A figure quoted from the CV — "28%
+  // off scan time" — is real; a single match score would not be, because weighting a
+  // partial match is a choice nothing in the data supports.
+  const coverage = html.slice(html.indexOf('class="coverage"'), html.indexOf("</div>", html.indexOf('class="coverage"')) + 6);
+  assert.equal(/\d+\s*%/.test(coverage), false, "a match percentage would be an invented weighting");
+  assert.match(coverage, /coverage-bar/);
 });
 
 test("a segment with nothing in it is not drawn", () => {
   const html = renderAnalysisHtml(evidenceFixture({
+    recommendation: { verdict: "strong_fit", headline: "h", rationale: "r" },
     requirements: [{ name: "A", level: "required", match: "strong", explanation: "x", evidence: [] }]
   }), "en");
-  assert.match(html, /coverage-fill tone-ok/);
-  assert.equal(html.includes("tone-warn\" style=\"flex:0\""), false);
-  assert.equal(html.includes("tone-bad"), false);
+  // Scoped to the bar: tone-bad also styles severity tags elsewhere on the page.
+  const bar = html.slice(html.indexOf('class="coverage-bar"'), html.indexOf("</div>", html.indexOf('class="coverage-bar"')));
+  assert.match(bar, /coverage-fill tone-ok/);
+  assert.equal(bar.includes("tone-warn"), false, "an empty segment must not be drawn");
+  assert.equal(bar.includes("tone-bad"), false, "an empty segment must not be drawn");
 });
