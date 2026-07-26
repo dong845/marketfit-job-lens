@@ -6,6 +6,13 @@ const SCREENING_ROLES = new Set(["knockout", "weighted", "nice_to_have"]);
 const RECENCY_STATES = new Set(["current", "recent", "dated", "undated"]);
 const CLOSABILITY = new Set(["before_apply", "not_before_apply"]);
 const CONDITION_TYPES = new Set(["sponsorship", "work_authorization", "citizenship", "clearance", "onsite_location", "licence", "other"]);
+/**
+ * Which way a stated condition points. The type alone cannot tell "we sponsor
+ * visas" from "we do not sponsor visas" — same subject, opposite consequence — so
+ * nothing downstream could compare it against what the candidate said about
+ * themselves without this.
+ */
+const CONDITION_STANCES = new Set(["requires_existing", "offers_support", "unclear"]);
 const REQUIREMENT_LEVELS = new Set(["required", "preferred", "unclear"]);
 const EVIDENCE_SOURCES = new Set(["resume", "job"]);
 const GAP_SEVERITIES = new Set(["material", "moderate", "unknown"]);
@@ -111,9 +118,10 @@ export const AGENT_EVIDENCE_SCHEMA = Object.freeze({
       items: {
         type: "object",
         additionalProperties: false,
-        required: ["type", "statement", "evidence"],
+        required: ["type", "stance", "statement", "evidence"],
         properties: {
           type: { type: "string", enum: ["sponsorship", "work_authorization", "citizenship", "clearance", "onsite_location", "licence", "other"] },
+          stance: { type: "string", enum: ["requires_existing", "offers_support", "unclear"] },
           statement: { type: "string", minLength: 1, maxLength: FIELD_LIMITS.prose },
           evidence: { type: "array", minItems: 1, maxItems: 4, items: EVIDENCE_SCHEMA }
         }
@@ -476,6 +484,9 @@ function parseStatedConditions(value, request) {
     try {
       return [{
         type: item.type,
+        // Tolerated, like every other added axis: a model that omits it has still
+        // reported the employer's sentence, which is the part that matters.
+        stance: CONDITION_STANCES.has(item.stance) ? item.stance : "unclear",
         statement: outputText(item.statement, "statedCondition.statement", FIELD_LIMITS.prose),
         evidence: parseEvidenceList(item.evidence, request, "statedCondition.evidence", RESULT_LIMITS.evidencePerItem)
       }];

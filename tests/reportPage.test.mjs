@@ -43,9 +43,9 @@ test("a missing or expired report explains itself instead of rendering blank", (
 test("neither surface prints source quotes", () => {
   // Quotes are not rendered anywhere: they were long and buried the analysis.
   // The grounding they came from is untouched — see analysisView.test.mjs.
-  assert.match(script, /renderAnalysisHtml\(evidence, locale\)/);
+  assert.match(script, /renderAnalysisHtml\(evidence, locale, candidate\)/);
   const sidepanelSource = readFileSync(join(root, "src/sidepanel/sidepanel.js"), "utf8");
-  assert.match(sidepanelSource, /renderAnalysisHtml\(evidence, locale\)/);
+  assert.match(sidepanelSource, /renderAnalysisHtml\(evidence, locale, declaredCandidate\(\)\)/);
   const view = readFileSync(join(root, "src/ui/analysisView.js"), "utf8");
   assert.equal(view.includes("blockquote"), false, "no quote markup may remain");
 });

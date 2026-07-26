@@ -96,9 +96,15 @@ for (const f of consumers) {
 // people to ignore this warning; that is worse than not having it.
 const view = readFileSync(join(root, "src/ui/analysisView.js"), "utf8");
 for (const m of view.matchAll(/"([A-Za-z][A-Za-z0-9]*)"/g)) if (en.has(m[1])) usedKeys.add(m[1]);
-// `${keyFn(x)}Sub` reaches every key ending in that suffix.
+// `${keyFn(x)}Sub` reaches every key ending in that suffix, and `prefix${value}`
+// reaches every key starting with it — both shapes appear in the renderer.
 for (const m of view.matchAll(/\$\{[^}]+\}([A-Za-z][A-Za-z0-9]*)`/g)) {
   for (const key of en) if (key.endsWith(m[1])) usedKeys.add(key);
+}
+for (const source of [view, readFileSync(join(root, "src/sidepanel/sidepanel.js"), "utf8")]) {
+  for (const m of source.matchAll(/`([A-Za-z][A-Za-z0-9]*)\$\{/g)) {
+    for (const key of en) if (key.startsWith(m[1]) && key !== m[1]) usedKeys.add(key);
+  }
 }
 for (const m of readFileSync(join(root, "src/ai/models.js"), "utf8").matchAll(/labelKey: "([^"]+)"/g)) usedKeys.add(m[1]);
 ok.push(`i18n: ${en.size} keys, en/zh in sync`);

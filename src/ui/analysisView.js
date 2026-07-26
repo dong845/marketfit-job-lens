@@ -1,4 +1,5 @@
 import { format, t } from "./i18n.js";
+import { conditionAlignment, overallAlignment } from "./workAuthorization.js";
 
 /**
  * Turns validated agent evidence into the analysis markup.
@@ -20,11 +21,14 @@ import { format, t } from "./i18n.js";
  * spot the eye lands on after reading the answer, spending the reader's best
  * attention on small print.
  */
-export function renderAnalysisHtml(evidence, locale) {
+export function renderAnalysisHtml(evidence, locale, candidate = {}) {
   if (!evidence) return "";
+  // Computed once and passed down: the verdict card and the conditions card must
+  // never disagree about whether the reader can take this job.
+  const alignment = overallAlignment(evidence.statedConditions, candidate.workAuthorization);
   return [
-    renderRecommendation(evidence.recommendation, evidence.requirements, locale),
-    renderStatedConditions(evidence.statedConditions, locale),
+    renderRecommendation(evidence.recommendation, evidence.requirements, locale, alignment),
+    renderStatedConditions(evidence.statedConditions, locale, candidate.workAuthorization),
     renderOverview(evidence.overview, locale),
     renderRequirements(evidence.requirements, locale),
     renderCards(t(locale, "aiStrengths"), evidence.strengths, (item) => titleAndSummary(item.title, item.summary), locale),
@@ -62,13 +66,20 @@ const VERDICT_TONE = { strong_fit: "ok", worth_applying: "go", stretch: "warn", 
  * also carries what it cost to reach: how many required areas the CV evidences,
  * what applying would take, and the one thing that would change the answer.
  */
-function renderRecommendation(recommendation, requirements, locale) {
+function renderRecommendation(recommendation, requirements, locale, alignment = null) {
   // Saying nothing here means the user paid for an analysis and the one thing they
   // came for is silently absent.
   if (!recommendation) {
     return `<section class="result-card verdict tone-muted"><p class="verdict-rationale">${escapeHtml(t(locale, "verdictMissing"))}</p></section>`;
   }
-  const tone = VERDICT_TONE[recommendation.verdict] || "muted";
+  // A conflict between the employer's stated condition and the candidate's own
+  // declared position outranks the model's verdict: no amount of skill match makes
+  // an application viable when the posting refuses the one thing the reader needs.
+  // The downgrade says so on the card — quietly swapping the word would leave a
+  // rationale underneath arguing for a verdict that is no longer shown.
+  const downgraded = alignment === "conflict" && recommendation.verdict !== "weak_fit";
+  const verdict = downgraded ? "weak_fit" : recommendation.verdict;
+  const tone = VERDICT_TONE[verdict] || "muted";
   const effort = recommendation.effort
     ? `<span class="tag tag-muted">${escapeHtml(t(locale, effortKey(recommendation.effort)))}</span>`
     : "";
@@ -77,10 +88,12 @@ function renderRecommendation(recommendation, requirements, locale) {
     : "";
   return `<section class="result-card verdict tone-${escapeHtml(tone)}">
     <div class="verdict-head">
-      <span class="verdict-word">${escapeHtml(t(locale, verdictKey(recommendation.verdict)))}</span>
-      ${effort}
+      <span class="verdict-word">${escapeHtml(t(locale, verdictKey(verdict)))}</span>
+      ${downgraded ? "" : effort}
     </div>
-    ${VERDICT_TONE[recommendation.verdict] ? `<p class="verdict-sub">${escapeHtml(t(locale, `${verdictKey(recommendation.verdict)}Sub`))}</p>` : ""}
+    ${downgraded
+      ? `<p class="verdict-override">${escapeHtml(t(locale, "verdictDowngraded"))}</p>`
+      : VERDICT_TONE[verdict] ? `<p class="verdict-sub">${escapeHtml(t(locale, `${verdictKey(verdict)}Sub`))}</p>` : ""}
     ${requirementScore(requirements, locale)}
     <p class="verdict-headline">${escapeHtml(recommendation.headline)}</p>
     ${recommendation.effortNote ? `<p class="verdict-effort">${escapeHtml(recommendation.effortNote)}</p>` : ""}
@@ -114,18 +127,24 @@ function effortKey(effort) {
  * What the employer stated, directly under the verdict: a sponsorship line can
  * make the whole fit question moot, so it must not sit below the fold.
  */
-function renderStatedConditions(conditions, locale) {
+function renderStatedConditions(conditions, locale, declaredStatus) {
   if (!conditions?.length) return "";
-  const rows = conditions.map((item) => `<li class="condition">
+  const rows = conditions.map((item) => {
+    const alignment = conditionAlignment(item, declaredStatus);
+    return `<li class="condition">
     <span class="tag tag-warn">${escapeHtml(t(locale, conditionKey(item.type)))}</span>
     <p>${escapeHtml(item.statement)}</p>
-  </li>`).join("");
+    ${alignment ? `<p class="condition-match tone-${escapeHtml(ALIGNMENT_TONE[alignment])}">${escapeHtml(t(locale, `alignment${alignment[0].toUpperCase()}${alignment.slice(1)}`))}</p>` : ""}
+  </li>`;
+  }).join("");
   return `<section class="result-card conditions">
     <h3>${escapeHtml(t(locale, "statedConditions"))}</h3>
     <ul class="condition-list">${rows}</ul>
     <p class="meta">${escapeHtml(t(locale, "conditionNote"))}</p>
   </section>`;
 }
+
+const ALIGNMENT_TONE = { conflict: "bad", verify: "warn", supported: "ok" };
 
 function conditionKey(type) {
   return {

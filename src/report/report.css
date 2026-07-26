@@ -103,6 +103,11 @@ h1, h2, h3, h4, p { margin: 0; }
 .verdict.tone-warn .verdict-word { color: var(--warn); }
 .verdict.tone-bad .verdict-word { color: var(--danger); }
 .verdict-sub { color: var(--muted); font-size: 13px; line-height: 1.5; }
+.verdict-override { background: var(--soft-danger); border-radius: 6px; color: var(--danger); font-size: 13px; font-weight: 600; line-height: 1.5; padding: 8px 10px; }
+.condition-match { border-left: 3px solid currentColor; font-size: 13px; font-weight: 600; line-height: 1.5; padding-left: 9px; }
+.condition-match.tone-bad { color: var(--danger); }
+.condition-match.tone-warn { color: var(--warn); }
+.condition-match.tone-ok { color: var(--good); }
 .verdict-score { border-top: 1px solid var(--line); color: var(--muted); font-size: 13px; font-variant-numeric: tabular-lining-nums; line-height: 1.5; padding-top: 8px; }
 .verdict-headline { font-size: 18px; font-weight: 700; line-height: 1.4; }
 .verdict-effort { font-size: 14px; line-height: 1.55; }

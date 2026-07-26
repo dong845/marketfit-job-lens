@@ -121,7 +121,7 @@ test("analysis rendering lives in its own module, not inline in the panel", () =
   // Kept pure and separate so the layout is testable without a live DOM;
   // tests/analysisView.test.mjs asserts the output itself.
   assert.match(script, /import \{ escapeHtml, renderAnalysisHtml \} from "\.\.\/ui\/analysisView\.js"/);
-  assert.match(script, /function renderAnalysis\(evidence\) \{ fields\.result\.innerHTML = renderAnalysisHtml\(evidence, locale\); \}/);
+  assert.match(script, /function renderAnalysis\(evidence\) \{ fields\.result\.innerHTML = renderAnalysisHtml\(evidence, locale, declaredCandidate\(\)\); \}/);
   assert.equal(script.includes("function renderRequirements"), false);
 });
 

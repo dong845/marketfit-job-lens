@@ -128,6 +128,12 @@ code { font-size: 11px; }
 /* A gloss on the verdict word, not a second headline: it exists so "worth applying"
    and "fix gaps first" can be ranked against each other at a glance. */
 .verdict-sub { color: var(--muted); font-size: 11px; line-height: 1.45; }
+/* The downgrade has to read as a stated reason, not as the model's own wording. */
+.verdict-override { background: var(--soft-danger); border-radius: 6px; color: var(--danger); font-size: 11px; font-weight: 600; line-height: 1.45; padding: 6px 8px; }
+.condition-match { border-left: 2px solid currentColor; font-size: 11px; font-weight: 600; line-height: 1.45; padding-left: 7px; }
+.condition-match.tone-bad { color: var(--danger); }
+.condition-match.tone-warn { color: var(--warn); }
+.condition-match.tone-ok { color: var(--good); }
 /* The tally behind the word, so the conclusion can be checked rather than trusted. */
 .verdict-score { border-top: 1px solid var(--line); color: var(--muted); font-size: 11px; font-variant-numeric: tabular-lining-nums; line-height: 1.45; padding-top: 6px; }
 .verdict-headline { font-size: 14px; font-weight: 700; line-height: 1.4; }

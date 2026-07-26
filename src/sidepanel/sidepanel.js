@@ -17,7 +17,7 @@ const fields = {
   status: byId("status"), result: byId("result"), currentJobSummary: byId("currentJobSummary"), currentJobMeta: byId("currentJobMeta"), currentJobQuality: byId("currentJobQuality"), temporaryNotice: byId("temporaryNotice"),
   redactionPreview: byId("redactionPreview"), agentProvider: byId("agentProvider"), apiKey: byId("apiKey"), apiProviderMode: byId("apiProviderMode"),
   apiModel: byId("apiModel"), accessRetryRow: byId("accessRetryRow"), jobEditorPanel: byId("jobEditorPanel"), jobTextEditor: byId("jobTextEditor"),
-  jobTitleInput: byId("jobTitleInput"), jobCompanyInput: byId("jobCompanyInput"), jobLocationInput: byId("jobLocationInput"), appVersion: byId("appVersion"),
+  marketHelp: byId("marketHelp"), workAuthorizationHelp: byId("workAuthorizationHelp"), jobTitleInput: byId("jobTitleInput"), jobCompanyInput: byId("jobCompanyInput"), jobLocationInput: byId("jobLocationInput"), appVersion: byId("appVersion"),
   reportRow: byId("reportRow"), openReport: byId("openReport"), runProgress: byId("runProgress")
 };
 const directApiClient = createDirectApiClient();
@@ -40,6 +40,8 @@ byId("retryProviderAccess").addEventListener("click", grantProviderAccess);
 byId("openReport").addEventListener("click", openFullReport);
 fields.cvPdf.addEventListener("change", loadResumePdf);
 fields.interfaceLanguage.addEventListener("change", changeLanguage);
+fields.market.addEventListener("change", renderProfileHelp);
+fields.workAuthorization.addEventListener("change", renderProfileHelp);
 
 // Chrome keeps running an unpacked extension's previous code until it is reloaded,
 // so the loaded build has to be visible to tell "not fixed" from "not reloaded".
@@ -76,6 +78,7 @@ function applyLocale() {
   document.documentElement.lang = locale === "zh" ? "zh-CN" : "en";
   applyTranslations(document, locale);
   fields.temporaryNotice.textContent = t(locale, "temporary");
+  renderProfileHelp();
   renderResumeStatus();
   renderCurrentJobSummary();
   // A run in progress owns the result area: lastAgentEvidence is deliberately null
@@ -104,6 +107,19 @@ async function loadResumePdf() {
     fields.cvFileStatus.textContent = errorText(locale, error, "pdfFailed");
     setStatus(t(locale, "pdfFailed"));
   }
+}
+
+/**
+ * Explains the option currently selected, under the two selectors.
+ *
+ * "Needs sponsorship" versus "open work permit" is not obvious to everyone it
+ * applies to, and since a stated condition is now checked against this choice, a
+ * wrong pick costs the reader a job they could have taken.
+ */
+function renderProfileHelp() {
+  const authKey = `authHelp${fields.workAuthorization.value.replace(/(^|_)([a-z])/g, (_, __, letter) => letter.toUpperCase())}`;
+  fields.marketHelp.textContent = t(locale, "marketHelp");
+  fields.workAuthorizationHelp.textContent = t(locale, authKey);
 }
 
 function renderResumeStatus() {
@@ -511,7 +527,12 @@ async function runAgentReview() {
   }
 }
 
-function renderAnalysis(evidence) { fields.result.innerHTML = renderAnalysisHtml(evidence, locale); }
+function renderAnalysis(evidence) { fields.result.innerHTML = renderAnalysisHtml(evidence, locale, declaredCandidate()); }
+
+/** What the user said about themselves — their words, never a finding about them. */
+function declaredCandidate() {
+  return { workAuthorization: fields.workAuthorization.value, targetMarket: fields.market.value };
+}
 
 /**
  * Brings the verdict into view.
@@ -614,7 +635,7 @@ async function openFullReport() {
 
     const id = globalThis.crypto?.randomUUID?.() || String(Date.now());
     await store.set({
-      [reportKey(id)]: buildReportPayload({ ...lastRunContext, evidence: lastAgentEvidence, locale }),
+      [reportKey(id)]: buildReportPayload({ ...lastRunContext, evidence: lastAgentEvidence, locale, candidate: declaredCandidate() }),
       // Lets the page recover if it is ever opened without a usable query string.
       [LATEST_KEY]: id
     });

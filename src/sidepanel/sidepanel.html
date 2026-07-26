@@ -27,6 +27,10 @@
             <label><span data-i18n="market">Target market</span><select id="market"><option value="US">United States</option><option value="UK">United Kingdom</option><option value="CA">Canada</option><option value="AU">Australia</option><option value="NL">Netherlands</option><option value="SG">Singapore</option><option value="CN">中国</option></select></label>
             <label><span data-i18n="workAuthorization">Work authorization</span><select id="workAuthorization"><option value="authorized" data-i18n="authorized">Already authorized</option><option value="needs_sponsorship" data-i18n="needsSponsorship">Needs sponsorship</option><option value="open_work_permit" data-i18n="openWorkPermit">Open work permit</option><option value="student_or_graduate" data-i18n="studentGraduate">Student or graduate route</option><option value="temporary_route" data-i18n="temporaryRoute">Other temporary route</option><option value="unknown" selected data-i18n="unknown">Unknown</option></select></label>
           </div>
+          <!-- Which option to pick is not obvious, and picking the wrong one now
+               changes the verdict, so the meaning of the current choice is on screen. -->
+          <p id="marketHelp" class="help"></p>
+          <p id="workAuthorizationHelp" class="help"></p>
         </div>
       </section>
 
