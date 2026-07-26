@@ -118,11 +118,15 @@ export const AGENT_EVIDENCE_SCHEMA = Object.freeze({
       items: {
         type: "object",
         additionalProperties: false,
-        required: ["type", "stance", "statement", "evidence"],
+        required: ["type", "stance", "statement", "question", "evidence"],
         properties: {
           type: { type: "string", enum: ["sponsorship", "work_authorization", "citizenship", "clearance", "onsite_location", "licence", "other"] },
           stance: { type: "string", enum: ["requires_existing", "offers_support", "unclear"] },
           statement: { type: "string", minLength: 1, maxLength: FIELD_LIMITS.prose },
+          // The question whose answer settles this condition, kept with the condition
+          // rather than in the general question list — a doubt that decides the whole
+          // application should not be answered three screens below where it is raised.
+          question: { type: "string", minLength: 1, maxLength: FIELD_LIMITS.question },
           evidence: { type: "array", minItems: 1, maxItems: 4, items: EVIDENCE_SCHEMA }
         }
       }
@@ -500,6 +504,7 @@ function parseStatedConditions(value, request) {
         // reported the employer's sentence, which is the part that matters.
         stance: CONDITION_STANCES.has(item.stance) ? item.stance : "unclear",
         statement: outputText(item.statement, "statedCondition.statement", FIELD_LIMITS.prose),
+        question: softText(item.question, FIELD_LIMITS.question),
         evidence: parseEvidenceList(item.evidence, request, "statedCondition.evidence", RESULT_LIMITS.evidencePerItem)
       }];
     } catch {

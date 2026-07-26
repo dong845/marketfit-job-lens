@@ -109,3 +109,29 @@ test("each condition carries its own verdict against the declaration, in both la
   assert.match(en, /condition-match tone-warn/);
   assert.match(en, /Ask the employer before applying/);
 });
+
+test("a stated condition carries the question that settles it, next to the condition", () => {
+  // "International candidates welcome" does not say whether they sponsor, and that
+  // is the single fact deciding the application. The question belongs beside the
+  // doubt, not three screens below it in the general question list.
+  const evidence = evidenceWith([{
+    type: "sponsorship",
+    stance: "unclear",
+    statement: "International candidates are welcome to apply.",
+    question: "Does this role come with visa sponsorship, or do you only consider candidates who already hold a local work permit?",
+    evidence: []
+  }]);
+  const html = renderAnalysisHtml(evidence, "en", { workAuthorization: "needs_sponsorship" });
+  assert.match(html, /condition-question/);
+  assert.match(html, /Ask them:/);
+  assert.match(html, /already hold a local work permit/);
+  // An unclear stance is not a refusal, so it must not downgrade the verdict.
+  assert.equal(html.includes("verdict-override"), false);
+
+  const zh = renderAnalysisHtml(evidence, "zh", { workAuthorization: "needs_sponsorship" });
+  assert.match(zh, /可以这样问：/);
+
+  // A condition with no question renders without an empty prompt block.
+  const bare = renderAnalysisHtml(evidenceWith([{ type: "sponsorship", stance: "unclear", statement: "x", evidence: [] }]), "en", {});
+  assert.equal(bare.includes("condition-question"), false);
+});

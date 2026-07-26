@@ -123,3 +123,5 @@ h1, h2, h3, h4, p { margin: 0; }
 .condition-list { display: grid; gap: 12px; list-style: none; margin: 0; padding: 0; }
 .condition { display: grid; gap: 5px; }
 .condition p { font-size: 14px; line-height: 1.55; }
+.condition-question { background: #f5f8f9; border-radius: 6px; font-size: 14px; line-height: 1.5; padding: 7px 9px; }
+.condition-question strong { color: var(--accent-strong); }

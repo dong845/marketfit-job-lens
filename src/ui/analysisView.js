@@ -135,6 +135,7 @@ function renderStatedConditions(conditions, locale, declaredStatus) {
     <span class="tag tag-warn">${escapeHtml(t(locale, conditionKey(item.type)))}</span>
     <p>${escapeHtml(item.statement)}</p>
     ${alignment ? `<p class="condition-match tone-${escapeHtml(ALIGNMENT_TONE[alignment])}">${escapeHtml(t(locale, `alignment${alignment[0].toUpperCase()}${alignment.slice(1)}`))}</p>` : ""}
+    ${item.question ? `<p class="condition-question"><strong>${escapeHtml(t(locale, "conditionAsk"))}</strong> ${escapeHtml(item.question)}</p>` : ""}
   </li>`;
   }).join("");
   return `<section class="result-card conditions">
