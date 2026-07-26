@@ -383,3 +383,18 @@ test("Anthropic is called with the header a browser origin requires", async () =
   // the request is ever sent, and the failure would look like a network error.
   assert.deepEqual(Object.keys(headers).sort(), ["anthropic-dangerous-direct-browser-access", "anthropic-version", "content-type", "x-api-key"]);
 });
+
+test("an Anthropic reply is read even if its text sits deeper than expected", async () => {
+  // This is the one provider that cannot be run against its live endpoint from here,
+  // so an unfamiliar response shape should degrade into a search rather than into
+  // "the provider returned nothing". The deep pass reads the same block shape, so it
+  // cannot invent text that was never sent.
+  const { extractAnthropicJsonPayload } = await import("../src/ai/providerPayload.js");
+  const body = '{"ok":1}';
+  assert.equal(extractAnthropicJsonPayload({ content: [{ type: "text", text: body }] }), body);
+  // Thinking blocks are skipped rather than concatenated into the JSON.
+  assert.equal(extractAnthropicJsonPayload({ content: [{ type: "thinking", thinking: "…" }, { type: "text", text: body }] }), body);
+  assert.equal(extractAnthropicJsonPayload({ output: { blocks: [{ type: "text", text: body }] } }), body);
+  // An genuinely empty reply is still an error, not an empty analysis.
+  assert.throws(() => extractAnthropicJsonPayload({ content: [] }), (error) => error.code === "OUTPUT_EMPTY");
+});

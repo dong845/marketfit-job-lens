@@ -31,7 +31,12 @@ export function extractAnthropicJsonPayload(payload) {
   }
   const refusal = String(payload?.stop_reason || "").includes("refusal") ? collectAnthropicText(payload) : "";
   if (refusal) throw new BridgeError("PROVIDER_REFUSED", refusal.slice(0, 500), 502);
-  const text = collectAnthropicText(payload);
+  // Top-level content blocks first, then anywhere in the payload. This provider is
+  // the one that cannot be tested against its live endpoint here, so a reply that
+  // nests its text one level deeper than expected should degrade into a search
+  // rather than into "returned nothing" — the deep pass reads the same block shape,
+  // so it cannot invent text that is not there.
+  const text = collectAnthropicText(payload) || collectTextByTypes(payload, new Set(["text"]));
   if (!text) throw new BridgeError("OUTPUT_EMPTY", "The AI provider returned no text at all.", 502);
   return text;
 }
