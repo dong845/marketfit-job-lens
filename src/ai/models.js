@@ -70,19 +70,26 @@ export const MODELS = Object.freeze({
   // response_format json_object (valid JSON, no schema) rather than a strict
   // json_schema, so the schema is carried by the prompt and enforced by
   // parseAgentEvidence — which validates every reply regardless of provider.
-  "deepseek-chat": {
-    typicalSeconds: 60,
+  // deepseek-chat and deepseek-reasoner were retired on 2026-07-24 and the API now
+  // rejects them outright, which cost a run rather than degrading. Both of these
+  // default to thinking mode, and thinking spends the same output budget as the
+  // answer — the old 8000 was already the smallest budget offered here and the one
+  // most likely to truncate, so it goes up to match the most capable models.
+  // Verified against api-docs.deepseek.com/quick_start/pricing on 2026-07-26:
+  // 1M context, 384K maximum output, JSON output supported on both.
+  "deepseek-v4-flash": {
+    typicalSeconds: 75,
     provider: "deepseek-api",
-    labelKey: "deepseekChat",
-    maxOutputTokens: 8000,
+    labelKey: "deepseekV4Flash",
+    maxOutputTokens: 24000,
     structuredOutputs: false,
     jsonObjectMode: true
   },
-  "deepseek-reasoner": {
-    typicalSeconds: 110,
+  "deepseek-v4-pro": {
+    typicalSeconds: 120,
     provider: "deepseek-api",
-    labelKey: "deepseekReasoner",
-    maxOutputTokens: 8000,
+    labelKey: "deepseekV4Pro",
+    maxOutputTokens: 24000,
     structuredOutputs: false,
     jsonObjectMode: true
   }
@@ -91,7 +98,7 @@ export const MODELS = Object.freeze({
 export const DEFAULT_MODEL = Object.freeze({
   "openai-api": "gpt-5-mini",
   "anthropic-api": "claude-sonnet-5",
-  "deepseek-api": "deepseek-chat"
+  "deepseek-api": "deepseek-v4-flash"
 });
 
 export const API_PROVIDERS = Object.freeze(["openai-api", "anthropic-api", "deepseek-api"]);

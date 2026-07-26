@@ -210,14 +210,14 @@ test("DeepSeek goes only to its own endpoint, with the key request-only", async 
       return { ok: true, status: 200, async json() { return { choices: [{ message: { content: JSON.stringify(validEvidence()) } }] }; } };
     }
   });
-  const response = await client.runTask(apiRequest("deepseek-api", "deepseek-chat"));
+  const response = await client.runTask(apiRequest("deepseek-api", "deepseek-v4-flash"));
 
   assert.ok(response.result, "the panel reads response.result for every provider");
   assert.equal(response.provider, "deepseek-api");
   assert.equal(calls.length, 1);
   assert.equal(calls[0].url, "https://api.deepseek.com/chat/completions");
   assert.equal(calls[0].headers.authorization, "Bearer session-test-api-key-123");
-  assert.equal(calls[0].body.model, "deepseek-chat");
+  assert.equal(calls[0].body.model, "deepseek-v4-flash");
   // json_object gives valid JSON but no schema; the shape is enforced by the parser.
   assert.deepEqual(calls[0].body.response_format, { type: "json_object" });
   assert.equal(JSON.stringify(calls[0].body).includes("session-test-api-key-123"), false);
@@ -234,7 +234,7 @@ test("DeepSeek falls back to plain prompting if json_object is refused", async (
       return { ok: true, status: 200, async json() { return { choices: [{ message: { content: JSON.stringify(validEvidence()) } }] }; } };
     }
   });
-  const response = await client.runTask(apiRequest("deepseek-api", "deepseek-reasoner"));
+  const response = await client.runTask(apiRequest("deepseek-api", "deepseek-v4-pro"));
   assert.equal(attempts, 2);
   assert.ok(response.result);
 });
@@ -293,7 +293,7 @@ test("a chat-completions reply cut off by the token budget says so", async () =>
       return { choices: [{ finish_reason: "length", message: { content: '{"overview":' } }] };
     } })
   });
-  await assert.rejects(() => client.runTask(apiRequest("deepseek-api", "deepseek-chat")), /ran out of output space/);
+  await assert.rejects(() => client.runTask(apiRequest("deepseek-api", "deepseek-v4-flash")), /ran out of output space/);
 });
 
 test("a body that never arrives is still bounded by the request timeout", async () => {

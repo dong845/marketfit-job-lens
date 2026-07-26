@@ -93,7 +93,9 @@ assert.ok(RESUME.includes(evidence.overview.evidence[0].quote), "resolved CV evi
 assert.equal(evidence.suggestedActions[0].priority, "before_apply");
 
 // 5. Model registry stays coherent with what the panel offers
-for (const provider of ["openai-api", "anthropic-api"]) {
+// DeepSeek was left out of this loop and was the one provider whose output budget
+// had drifted low enough to truncate a full analysis.
+for (const provider of ["openai-api", "anthropic-api", "deepseek-api"]) {
   const models = modelsForProvider(provider);
   assert.ok(models.length >= 2, `${provider} needs selectable models`);
   for (const model of models) {
