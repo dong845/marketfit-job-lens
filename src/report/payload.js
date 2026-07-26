@@ -14,9 +14,9 @@ export const KEEP_REPORTS = 10;
 export function buildReportPayload({ evidence, job, provider, model, locale, generatedAt, candidate }) {
   return {
     evidence: withoutEvidenceQuotes(evidence),
-    // The two categories the user picked. Without them the report would render a
+    // What the user declared about themselves. Without it the report would render a
     // different verdict from the panel it was opened from.
-    candidate: { workAuthorization: candidate?.workAuthorization || "", targetMarket: candidate?.targetMarket || "" },
+    candidate: { workAuthorization: candidate?.workAuthorization || "" },
     // Only the job's identity travels — never the CV text or the captured page body.
     job: {
       title: job?.title || "",

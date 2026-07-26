@@ -13,11 +13,11 @@ const TIMING_KEY = "marketfit.timing.v1";
 
 let locale = "en";
 const fields = {
-  interfaceLanguage: byId("interfaceLanguage"), cvPdf: byId("cvPdf"), cvFileStatus: byId("cvFileStatus"), market: byId("market"), workAuthorization: byId("workAuthorization"),
+  interfaceLanguage: byId("interfaceLanguage"), cvPdf: byId("cvPdf"), cvFileStatus: byId("cvFileStatus"), workAuthorization: byId("workAuthorization"),
   status: byId("status"), result: byId("result"), currentJobSummary: byId("currentJobSummary"), currentJobMeta: byId("currentJobMeta"), currentJobQuality: byId("currentJobQuality"), temporaryNotice: byId("temporaryNotice"),
   redactionPreview: byId("redactionPreview"), agentProvider: byId("agentProvider"), apiKey: byId("apiKey"), apiProviderMode: byId("apiProviderMode"),
   apiModel: byId("apiModel"), apiKeyHelp: byId("apiKeyHelp"), apiKeyWarning: byId("apiKeyWarning"), accessRetryRow: byId("accessRetryRow"), jobEditorPanel: byId("jobEditorPanel"), jobTextEditor: byId("jobTextEditor"),
-  marketHelp: byId("marketHelp"), workAuthorizationHelp: byId("workAuthorizationHelp"), jobTitleInput: byId("jobTitleInput"), jobCompanyInput: byId("jobCompanyInput"), jobLocationInput: byId("jobLocationInput"), appVersion: byId("appVersion"),
+  workAuthorizationHelp: byId("workAuthorizationHelp"), jobTitleInput: byId("jobTitleInput"), jobCompanyInput: byId("jobCompanyInput"), jobLocationInput: byId("jobLocationInput"), appVersion: byId("appVersion"),
   cvPdfButton: byId("cvPdfButton"), reportRow: byId("reportRow"), openReport: byId("openReport"), runProgress: byId("runProgress")
 };
 const directApiClient = createDirectApiClient();
@@ -40,7 +40,6 @@ byId("retryProviderAccess").addEventListener("click", grantProviderAccess);
 byId("openReport").addEventListener("click", openFullReport);
 fields.cvPdf.addEventListener("change", loadResumePdf);
 fields.interfaceLanguage.addEventListener("change", changeLanguage);
-fields.market.addEventListener("change", renderProfileHelp);
 fields.workAuthorization.addEventListener("change", renderProfileHelp);
 fields.apiKey.addEventListener("input", renderApiKeyWarning);
 
@@ -119,7 +118,6 @@ async function loadResumePdf() {
  */
 function renderProfileHelp() {
   const authKey = optionKey("authHelp", fields.workAuthorization.value);
-  fields.marketHelp.textContent = t(locale, "marketHelp");
   fields.workAuthorizationHelp.textContent = t(locale, authKey);
 }
 
@@ -530,7 +528,7 @@ async function runAgentReview() {
         },
         // The market selector was collected and never sent — a control that looked
         // like it personalised the analysis and did nothing.
-        candidate: { workAuthorization: fields.workAuthorization.value, targetMarket: fields.market.value }
+        candidate: { workAuthorization: fields.workAuthorization.value }
       }
     };
     const model = fields.apiModel.value;
@@ -572,7 +570,7 @@ function renderAnalysis(evidence) { fields.result.innerHTML = renderAnalysisHtml
 
 /** What the user said about themselves — their words, never a finding about them. */
 function declaredCandidate() {
-  return { workAuthorization: fields.workAuthorization.value, targetMarket: fields.market.value };
+  return { workAuthorization: fields.workAuthorization.value };
 }
 
 /**

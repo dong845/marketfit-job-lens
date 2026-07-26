@@ -1,7 +1,7 @@
 export const MESSAGES = {
   en: {
     appTitle: "MarketFit", language: "Language", temporary: "Your PDF resume and captured job stay in this panel unless you explicitly run AI analysis.",
-    profile: "Your profile", resumePdf: "CV PDF", noResume: "No resume PDF selected.", uploadHint: "1. Upload a text-based PDF resume. 2. Open a full job posting tab, choose an AI provider, then run AI analysis.", market: "Target market", workAuthorization: "Work authorization", clearSession: "Clear local session",
+    profile: "Your profile", resumePdf: "CV PDF", noResume: "No resume PDF selected.", uploadHint: "1. Upload a text-based PDF resume. 2. Open a full job posting tab, choose an AI provider, then run AI analysis.", workAuthorization: "Work authorization", clearSession: "Clear local session",
     authorized: "Already authorized", needsSponsorship: "Needs sponsorship", openWorkPermit: "Open work permit", studentGraduate: "Student or graduate route", temporaryRoute: "Other temporary route", unknown: "Unknown",
     currentJob: "Current job", refreshJob: "Re-read job page", editJob: "Edit job text", close: "Close", jobTitle: "Job title", company: "Company", jobLocation: "Location", jobDescriptionText: "Job description", saveJobText: "Use this JD",
     noData: "Upload a CV PDF, choose an AI provider, then run AI analysis while the full job posting is open.", missingResume: "Upload a CV PDF before analysing a job.", capturing: "Reading the current job page", captureBlocked: "This page cannot be read yet.", noJobContent: "No usable job description was found on this page.", grantSiteAccess: "Allow reading this site", accessDenied: "Site access was not granted. You can allow it and try again.", lowConfidence: "The page was captured, but job details are incomplete. Open the full job posting and try again.", lowQualityJob: "The captured job text is too short or incomplete ({chars} characters). Re-read the page or edit/paste the JD.", jobQualityLine: "{chars} chars · {method} · {confidence}% confidence", filteredLines: "· {count} page elements filtered out", filteredTitle: "Removed before sending:", capturedJobStats: "Job ready for AI: {chars} characters, {confidence}% confidence.", jobReadyForAi: "Job page is ready. Choose an AI provider and run analysis.",
@@ -25,8 +25,6 @@ export const MESSAGES = {
     alignmentVerify: "Your selected route may or may not satisfy this. Ask the employer before applying.",
     alignmentSupported: "The employer offers this, which is what you said you need.",
     statusReady: "Ready", reportLoading: "Loading report…", chooseFile: "Choose a PDF", changeFile: "Change file",
-    marketUS: "United States", marketUK: "United Kingdom", marketCA: "Canada", marketAU: "Australia", marketNL: "Netherlands", marketSG: "Singapore", marketCN: "China",
-    marketHelp: "Where you want to work. Shapes CV conventions, and flags a posting located elsewhere. MarketFit does not advise on immigration rules.",
     apiKeyWhere: "Get a key:", apiKeyOnceOnly: "The key is shown once — if you lose it, create another.",
     apiKeyHelpOpenaiApi: "Sign in, open the API keys page, and create a secret key. It needs credit on the account: a new key with no billing set up fails on the first call. Starts with sk-.",
     apiKeyHelpAnthropicApi: "Sign in and create a key under Settings, API keys. It needs credit on the account: a new key with no billing set up fails on the first call. Starts with sk-ant-.",
@@ -83,7 +81,7 @@ export const MESSAGES = {
   },
   zh: {
     appTitle: "MarketFit", language: "界面语言", temporary: "PDF 简历和当前职位默认只保留在此侧栏中；仅在你主动运行 AI 分析时才会进行额外传输。",
-    profile: "你的资料", resumePdf: "PDF 简历", noResume: "尚未选择 PDF 简历。", uploadHint: "1. 上传可提取文字的 PDF 简历。2. 打开完整职位详情页、选择 AI 提供商后，运行 AI 分析。", market: "目标市场", workAuthorization: "工作授权", clearSession: "清除本地会话",
+    profile: "你的资料", resumePdf: "PDF 简历", noResume: "尚未选择 PDF 简历。", uploadHint: "1. 上传可提取文字的 PDF 简历。2. 打开完整职位详情页、选择 AI 提供商后，运行 AI 分析。", workAuthorization: "工作授权", clearSession: "清除本地会话",
     authorized: "已具备工作授权", needsSponsorship: "需要雇主担保", openWorkPermit: "开放工作许可", studentGraduate: "学生或毕业生路径", temporaryRoute: "其他临时路径", unknown: "未知",
     currentJob: "当前职位", refreshJob: "重新读取职位页", editJob: "编辑职位文本", close: "关闭", jobTitle: "职位名称", company: "公司", jobLocation: "地点", jobDescriptionText: "职位描述", saveJobText: "使用这份 JD",
     noData: "上传 PDF 简历、选择 AI 提供商后，在打开完整职位详情页时运行 AI 分析。", missingResume: "请先上传 PDF 简历，再分析职位。", capturing: "正在读取当前职位页面", captureBlocked: "暂时无法读取此页面。", noJobContent: "未在此页面找到可用的职位描述。", grantSiteAccess: "允许读取此网站", accessDenied: "未获得网站读取权限。允许后可再次尝试。", lowConfidence: "职位页面已抓取，但关键信息不完整。请打开完整职位详情后重试。", lowQualityJob: "读取到的职位文本过短或不完整（{chars} 个字符）。请重新读取页面，或编辑/粘贴 JD。", jobQualityLine: "{chars} 字符 · {method} · {confidence}% 置信度", filteredLines: "· 已滤除 {count} 处页面元素", filteredTitle: "发送前已移除：", capturedJobStats: "职位已可用于 AI：{chars} 个字符，{confidence}% 置信度。", jobReadyForAi: "职位页面已就绪。请选择 AI 提供商并运行分析。",
@@ -107,8 +105,6 @@ export const MESSAGES = {
     alignmentVerify: "你选择的身份路径不一定满足这一条。投递前问清楚雇主。",
     alignmentSupported: "雇主明确提供这一项，正是你所需要的。",
     statusReady: "就绪", reportLoading: "正在载入报告…", chooseFile: "选择 PDF 简历", changeFile: "更换文件",
-    marketUS: "美国", marketUK: "英国", marketCA: "加拿大", marketAU: "澳大利亚", marketNL: "荷兰", marketSG: "新加坡", marketCN: "中国",
-    marketHelp: "你想在哪个市场工作。影响简历写法建议，并在职位地点不在该市场时提示。MarketFit 不提供移民政策建议。",
     apiKeyWhere: "去哪里拿：", apiKeyOnceOnly: "Key 只在创建时显示一次，丢了就重新建一个。",
     apiKeyHelpOpenaiApi: "登录后进入 API keys 页面创建一个密钥。账户必须有余额：新建的 Key 若没有配置付费，第一次调用就会失败。以 sk- 开头。",
     apiKeyHelpAnthropicApi: "登录后在 Settings → API keys 里创建。账户必须有余额：新建的 Key 若没有配置付费，第一次调用就会失败。以 sk-ant- 开头。",

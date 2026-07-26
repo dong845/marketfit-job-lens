@@ -207,3 +207,13 @@ test("an Anthropic key pasted under another provider is called out, and nothing 
   assert.equal(/startsWith\("sk-"\)/.test(warn), false, "sk- alone cannot identify a provider");
   assert.match(warn, /fields\.apiKeyWarning\.hidden = !mismatched/);
 });
+
+test("the profile asks only for what changes the analysis", () => {
+  // A control that looks like it personalises the analysis and does not is worse
+  // than no control. Target market was inert everywhere — model, renderer, report —
+  // so it is gone, and CV conventions now follow the posting's own location.
+  assert.equal(html.includes('id="market"'), false);
+  assert.equal(script.includes("targetMarket"), false);
+  // What remains must still reach the request.
+  assert.match(script, /candidate: \{ workAuthorization: fields\.workAuthorization\.value \}/);
+});

@@ -359,8 +359,7 @@ export function parseTaskRequest(value) {
       // told to ignore. Language requirements are matched from the CV like any other
       // requirement, so nothing was lost by dropping the field.
       candidate: {
-        workAuthorization: optionalText(candidate.workAuthorization, "candidate.workAuthorization", 80),
-        targetMarket: optionalText(candidate.targetMarket, "candidate.targetMarket", 8)
+        workAuthorization: optionalText(candidate.workAuthorization, "candidate.workAuthorization", 80)
       }
     }
   };

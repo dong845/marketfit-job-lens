@@ -255,3 +255,18 @@ test("effort is defined by the kind of work, not by a duration guess", async () 
   // strong_fit means the required areas are evidenced, so the work is wording.
   assert.match(prompt, /alongside a strong_fit verdict is a contradiction/);
 });
+
+test("CV conventions come from the posting's location, not from a selector", async () => {
+  // The target-market selector was inert: an A/B run with NL and US against the same
+  // posting produced the same three tailoring items and not one word about market
+  // convention. The market that decides how a CV should read is the employer's, and
+  // the posting always states it — so there was nothing to ask the user for.
+  const { buildAnalyzePrompt } = await import("../src/ai/prompts.js");
+  const prompt = buildAnalyzePrompt(apiRequest());
+  assert.match(prompt, /read it from job\.location/);
+  assert.match(prompt, /exactly one resumeTailoring item about convention/);
+  // Omitting beats inventing: a convention that does not differ is not advice.
+  assert.match(prompt, /omit the item rather than inventing one/);
+  assert.match(prompt, /never turn this into a statement about visa or immigration policy/);
+  assert.equal(/targetMarket/.test(prompt), false, "the selector is gone; nothing may still reference it");
+});
