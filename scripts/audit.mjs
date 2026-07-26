@@ -189,12 +189,17 @@ ok.push("all innerHTML writes escape their inputs");
 // them apart means the promise stays exact and stays checkable.
 const fetched = new Set();
 const linked = new Set();
+const origins = new Set();
 for (const file of jsFiles) {
   const src = readFileSync(file, "utf8");
   for (const m of src.matchAll(/https?:\/\/[a-zA-Z0-9.\-:{}$]+/g)) {
     // PROVIDER_CONSOLES is the declared home for link destinations; anything else is
     // treated as an endpoint until someone says otherwise.
     const consoleBlock = src.slice(src.indexOf("PROVIDER_CONSOLES"), src.indexOf("});", src.indexOf("PROVIDER_CONSOLES")) + 3);
+    // A third kind: the origin pattern handed to chrome.permissions. It is built from
+    // the page the user is on, never fetched, and collapsing it into either of the
+    // other two would weaken the "exactly three endpoints" guarantee or ban it.
+    if (m[0].includes("${")) { origins.add(m[0]); continue; }
     (src.includes("PROVIDER_CONSOLES") && consoleBlock.includes(m[0]) ? linked : fetched).add(m[0]);
   }
 }
@@ -204,6 +209,10 @@ for (const h of fetched) if (!allowed.test(h)) fail.push(`unexpected network hos
 for (const h of linked) if (!allowedLinks.test(h)) fail.push(`unexpected outbound link in src/: ${h}`);
 ok.push(`network hosts limited to: ${[...fetched].join(", ")}`);
 ok.push(`outbound links limited to: ${[...linked].join(", ")}`);
+// Permission origins must be https: an http origin the manifest cannot grant yields
+// a denial the user cannot act on.
+for (const o of origins) if (!o.startsWith("https://")) fail.push(`permission origin is not https: ${o}`);
+ok.push(`permission origins requested at runtime: ${[...origins].join(", ") || "none"}`);
 
 // ---- 8. no unreachable modules
 const entries = ["src/sidepanel/sidepanel.js", "src/background.js", "src/report/report.js"].map((p) => join(root, p));

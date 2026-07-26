@@ -54,3 +54,12 @@ test("a captured job can be reused only for the same page", () => {
   assert.equal(isSameJobPage("https://careers.pddglobalhr.com/campus/grad/detail?t=qSPiTb83hh#section", "https://careers.pddglobalhr.com/campus/grad/detail?t=qSPiTb83hh"), true);
   assert.equal(isSameJobPage("https://careers.pddglobalhr.com/campus/grad/detail?t=qSPiTb83hh", "https://careers.pddglobalhr.com/campus/grad/detail?t=another-job"), false);
 });
+
+test("only https origins are ever requested, matching the manifest", async () => {
+  const { siteOriginForPermission } = await import("../src/extraction/tabCapture.js");
+  assert.equal(siteOriginForPermission("https://careers.example.com/jobs/1"), "https://careers.example.com/*");
+  // The manifest cannot grant these, so asking would produce an unexplainable denial.
+  assert.equal(siteOriginForPermission("http://careers.example.com/jobs/1"), "");
+  assert.equal(siteOriginForPermission("chrome://extensions"), "");
+  assert.equal(siteOriginForPermission("not a url"), "");
+});

@@ -40,7 +40,11 @@ function withTimeout(promise, timeoutMs, message) {
 export function siteOriginForPermission(url) {
   try {
     const parsed = new URL(url);
-    return ["http:", "https:"].includes(parsed.protocol) ? `${parsed.protocol}//${parsed.host}/*` : "";
+    // https only, matching optional_host_permissions. Requesting an origin the
+    // manifest cannot grant produces a denial the user cannot act on, and a broad
+    // http://*/* is the permission most likely to stall a Web Store review for a
+    // capability real job boards never need.
+    return parsed.protocol === "https:" ? `https://${parsed.host}/*` : "";
   } catch {
     return "";
   }

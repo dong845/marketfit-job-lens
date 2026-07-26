@@ -29,7 +29,10 @@ test("manifest requests website access only as an optional permission", async ()
   assert.equal(manifest.permissions.includes("permissions"), false);
   // The local bridge is gone, so nothing needs a host permission at install time.
   assert.equal("host_permissions" in manifest, false);
-  assert.deepEqual(manifest.optional_host_permissions, ["http://*/*", "https://*/*"]);
+  // https only: an http origin the manifest cannot grant produces a denial the user
+  // cannot act on, and a broad http://*/* is the permission most likely to stall a
+  // Web Store review for something real job boards never need.
+  assert.deepEqual(manifest.optional_host_permissions, ["https://*/*"]);
 });
 
 test("PDF extraction joins local page text and rejects an image-only resume", async () => {
