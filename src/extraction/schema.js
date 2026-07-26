@@ -1,3 +1,20 @@
+/**
+ * How a capture was obtained. Named here rather than written inline at each call
+ * site because these tokens are user-visible — the panel prints a label for each —
+ * so something has to be able to enumerate them. A token with no label prints as
+ * raw snake_case in both languages, which is how "schema_org_jsonld" reached the UI.
+ */
+export const CAPTURE_METHODS = Object.freeze({
+  jsonLd: "schema_org_jsonld",
+  semantic: "semantic_selector",
+  manual: "manual_paste",
+  empty: "empty",
+  greenhouse: "greenhouse_adapter",
+  lever: "lever_adapter",
+  workday: "workday_adapter",
+  genericSpa: "generic_spa_adapter"
+});
+
 /** @typedef {Object} NormalizedJob
  * @property {string} title
  * @property {string} company
@@ -32,7 +49,7 @@ export function createNormalizedJob(input = {}) {
     capturedAt: input.capturedAt || new Date().toISOString(),
     sourceText: cleanSourceText(input.sourceText),
     extraction: {
-      method: input.extraction?.method || "manual_paste",
+      method: input.extraction?.method || CAPTURE_METHODS.manual,
       confidence: Number(input.extraction?.confidence ?? 0.85),
       needsConfirmation: Boolean(input.extraction?.needsConfirmation),
       textLength: Number(input.extraction?.textLength ?? cleanSourceText(input.sourceText).length),

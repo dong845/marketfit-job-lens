@@ -9,7 +9,7 @@ export const MESSAGES = {
     agentHeading: "AI job analysis", agentExplain: "AI reads your full PDF CV and the current job page, then tells you whether to apply, what each requirement looks like against your CV, what is missing, and how to prepare.",
     chooseProvider: "Choose a provider", provider: "AI provider", openaiApi: "OpenAI", anthropicApi: "Anthropic", deepseekApi: "DeepSeek", sessionApiKey: "Session API key", apiModel: "Model",
     openAiGpt5Mini: "GPT-5 mini (faster, lower cost)", openAiGpt5: "GPT-5 (more capable)", anthropicSonnet5: "Claude Sonnet 5 (balanced)", anthropicOpus5: "Claude Opus 5 (most capable)", anthropicSonnet46: "Claude Sonnet 4.6 (lower cost)", anthropicOpus46: "Claude Opus 4.6", deepseekChat: "DeepSeek V3 (faster, lower cost)", deepseekReasoner: "DeepSeek R1 (reasoning)",
-    runAiReview: "Analyze current job with AI", apiDirectHelp: "The session key remains only in this open panel. MarketFit asks before directly connecting to this provider, does not use a local Bridge, and never saves the key.", agentPrivacy: "Running an analysis sends the PDF-derived CV text and the captured job page directly to the provider you chose, and to no one else. Your API key stays in this open panel and is never saved.",
+    runAiReview: "Analyze current job with AI", apiDirectHelp: "The session key remains only in this open panel. MarketFit asks before connecting directly to this provider, and never saves the key.", agentPrivacy: "Running an analysis sends the PDF-derived CV text and the captured job page directly to the provider you chose, and to no one else. Your API key stays in this open panel and is never saved.",
     privacy: "Privacy and permissions", privacyExplain: "Default PDF parsing and page capture stay local. AI transfer occurs only after you explicitly run it.", previewPayload: "Preview optional AI payload", extensionPermission: "Access to a provider\u2019s API domain is requested only when you select it.",
     permActiveTab: "capture the current visible page after a click.", permScripting: "run that one-time visible-page extractor.", permStorage: "save interface language and how long past analyses took; PDF files and API keys are never stored.", permSidePanel: "show this workspace.",
     chooseProviderFirst: "Choose an AI provider first.", aiFinished: "AI analysis completed with {provider}.", requestingAi: "Job captured. Requesting AI analysis", apiKeyNeeded: "Enter a session API key for the selected provider.", directAccessDenied: "Direct access to the selected AI provider was not allowed.", retryAccess: "Allow provider access", aiSupplement: "AI-generated analysis, drawn only from your CV and this job page. Verify anything material before acting.",
@@ -26,7 +26,41 @@ export const MESSAGES = {
     matchStrong: "Strong", matchPartial: "Partial", matchGap: "Gap", matchNoEvidence: "No evidence",
     levelRequired: "Required", levelPreferred: "Preferred", levelUnclear: "Unclear",
     priorityNow: "Before you decide", priorityBeforeApply: "Before you send it", priorityLater: "After you apply",
-    severityMaterial: "Material", severityModerate: "Moderate", severityUnknown: "Unclear"
+    severityMaterial: "Material", severityModerate: "Moderate", severityUnknown: "Unclear",
+    // Error sentences, keyed by the code the throwing layer attaches. See errorText.
+    redactedEmail: "[email removed]", redactedPhone: "[phone removed]", redactedLink: "[link removed]",
+    previewNoteDirect: "Preview only. Running AI analysis would send the CV and job text below directly to {provider}.",
+    previewNotePending: "Preview only. Nothing is sent until you choose an AI provider and run the analysis.",
+    providerAccessMissing: "MarketFit cannot reach this provider yet. Select the provider again to grant access.",
+    providerUnsupported: "That AI provider is not supported.",
+    providerUnreadable: "The AI provider returned a response MarketFit could not read. Try again, or switch model.",
+    providerTimeout: "The AI provider did not finish in time. Try a faster model, or shorten the job description.",
+    providerUnreachable: "The AI provider could not be reached. Check your connection and try again.",
+    providerUnreachableCause: "The AI provider could not be reached ({cause}). Check your connection and try again.",
+    providerKeyRejected: "The AI provider rejected the API key (HTTP {status}). Check the key and try again.",
+    providerRateLimited: "The AI provider is rate limiting this key (HTTP {status}). Wait a moment and try again.",
+    providerUnavailable: "The AI provider is unavailable right now (HTTP {status}). Try again shortly.",
+    providerRejected: "The AI provider rejected the request (HTTP {status}).",
+    OUTPUT_TRUNCATED: "The AI ran out of output space before finishing. Try a shorter job description, or switch model.",
+    OUTPUT_UNTRUSTED: "The AI did not return a usable analysis. Try again, or switch model.",
+    SCHEMA_INVALID: "MarketFit could not build a valid request from this job and CV.",
+    PAYLOAD_TOO_LARGE: "This request is too large. Shorten the CV or the job description.",
+    CREDENTIAL_INVALID: "That API key looks incomplete. Check it and try again.",
+    pdfMissing: "Choose a PDF CV first.",
+    pdfNotPdf: "Only PDF CVs are supported.",
+    pdfTooLarge: "That PDF is too large. Use a file under {mb} MB.",
+    pdfEmpty: "That PDF file is empty.",
+    pdfTooManyPages: "That PDF has too many pages. Use a CV of {pages} pages or fewer.",
+    pdfNoText: "No selectable text was found. Upload a text-based PDF, not a scanned image.",
+    pdfPassword: "That PDF is password protected. Upload an unlocked copy.",
+    pdfNotReadable: "That file is not a readable PDF.",
+    pdfUnreadable: "That PDF could not be read on this device.",
+    // Capture internals that used to reach the panel as raw tokens.
+    methodSchemaOrgJsonld: "structured page data", methodSemanticSelector: "page layout", methodManualPaste: "your pasted text", methodEmpty: "nothing readable",
+    methodGreenhouseAdapter: "Greenhouse", methodLeverAdapter: "Lever", methodWorkdayAdapter: "Workday", methodGenericSpaAdapter: "dynamic page",
+    NO_JOB_CONTENT: "no job text was found", JOB_TEXT_TOO_SHORT: "the job text is too short",
+    NO_JOB_STRUCTURE_SIGNALS: "no requirements or responsibilities section was found",
+    LIKELY_NAV_OR_LOGIN_TEXT: "the page looks like navigation or a sign-in wall"
   },
   zh: {
     appTitle: "MarketFit", language: "界面语言", temporary: "PDF 简历和当前职位默认只保留在此侧栏中；仅在你主动运行 AI 分析时才会进行额外传输。",
@@ -38,7 +72,7 @@ export const MESSAGES = {
     agentHeading: "AI 职位分析", agentExplain: "AI 会读完整份 PDF 简历和当前职位页面，告诉你要不要投、每条要求对照你的简历是什么情况、缺什么、以及怎么准备。",
     chooseProvider: "选择提供商", provider: "AI 提供商", openaiApi: "OpenAI", anthropicApi: "Anthropic", deepseekApi: "DeepSeek", sessionApiKey: "会话 API Key", apiModel: "模型",
     openAiGpt5Mini: "GPT-5 mini（更快、成本更低）", openAiGpt5: "GPT-5（能力更强）", anthropicSonnet5: "Claude Sonnet 5（均衡）", anthropicOpus5: "Claude Opus 5（能力最强）", anthropicSonnet46: "Claude Sonnet 4.6（成本更低）", anthropicOpus46: "Claude Opus 4.6", deepseekChat: "DeepSeek V3（更快、成本更低）", deepseekReasoner: "DeepSeek R1（推理模型）",
-    runAiReview: "用 AI 分析当前职位", apiDirectHelp: "会话 API Key 只保留在当前打开的侧栏中。MarketFit 会在直连该提供商前请求权限，不使用本地 Bridge，也不会保存 Key。", agentPrivacy: "运行分析时，会把 PDF 简历文字和抓取到的职位页面直接发送给你选择的提供商，不发给任何其他方。API Key 只保留在当前打开的侧栏中，不会被保存。",
+    runAiReview: "用 AI 分析当前职位", apiDirectHelp: "会话 API Key 只保留在当前打开的侧栏中。MarketFit 会在直连该服务前请求权限，也不会保存 Key。", agentPrivacy: "运行分析时，会把 PDF 简历文字和抓取到的职位页面直接发送给你选择的提供商，不发给任何其他方。API Key 只保留在当前打开的侧栏中，不会被保存。",
     privacy: "隐私与权限", privacyExplain: "默认的 PDF 解析和页面抓取都在本地完成。仅在你主动运行 AI 分析时才会发生数据传输。", previewPayload: "预览可选 AI 负载", extensionPermission: "仅在你选择某个提供商时，才会请求访问它的 API 域名。",
     permActiveTab: "在你点击后抓取当前可见页面。", permScripting: "运行那一次性的可见页面提取脚本。", permStorage: "保存界面语言和历次分析耗时；PDF 文件和 API Key 从不保存。", permSidePanel: "显示此侧栏工作区。",
     chooseProviderFirst: "请先选择 AI 提供商。", aiFinished: "已使用 {provider} 完成 AI 分析。", requestingAi: "职位已读取，正在请求 AI 分析", apiKeyNeeded: "请为选定提供商填写会话 API Key。", directAccessDenied: "未允许直连所选 AI 提供商。", retryAccess: "允许访问该提供商", aiSupplement: "由 AI 生成，仅依据你的简历和这个职位页面。重要信息请自己核实之后再行动。",
@@ -55,12 +89,68 @@ export const MESSAGES = {
     matchStrong: "满足", matchPartial: "部分满足", matchGap: "不满足", matchNoEvidence: "简历未提及",
     levelRequired: "必需项", levelPreferred: "加分项", levelUnclear: "未说明",
     priorityNow: "决定前", priorityBeforeApply: "投递前", priorityLater: "投递之后",
-    severityMaterial: "严重", severityModerate: "中等", severityUnknown: "待确认"
+    severityMaterial: "严重", severityModerate: "中等", severityUnknown: "待确认",
+    // 错误文案，按抛出层附带的 code 取用，见 errorText。
+    redactedEmail: "[已移除邮箱]", redactedPhone: "[已移除电话]", redactedLink: "[已移除链接]",
+    previewNoteDirect: "仅为预览。运行 AI 分析时，会把下面的简历与职位文本直接发送给 {provider}。",
+    previewNotePending: "仅为预览。在你选择 AI 服务并运行分析之前，不会发送任何内容。",
+    providerAccessMissing: "MarketFit 还不能访问这个 AI 服务。请重新选择一次该服务以授权。",
+    providerUnsupported: "不支持这个 AI 服务。",
+    providerUnreadable: "AI 服务返回了 MarketFit 无法读取的内容。请重试，或更换模型。",
+    providerTimeout: "AI 服务在时限内没有完成。可以换更快的模型，或缩短职位描述。",
+    providerUnreachable: "无法连接 AI 服务。请检查网络后重试。",
+    providerUnreachableCause: "无法连接 AI 服务（{cause}）。请检查网络后重试。",
+    providerKeyRejected: "AI 服务拒绝了这个 API Key（HTTP {status}）。请检查 Key 后重试。",
+    providerRateLimited: "AI 服务对这个 Key 触发了限流（HTTP {status}）。请稍等片刻再试。",
+    providerUnavailable: "AI 服务当前不可用（HTTP {status}）。请稍后再试。",
+    providerRejected: "AI 服务拒绝了这次请求（HTTP {status}）。",
+    OUTPUT_TRUNCATED: "AI 在写完之前用尽了输出空间。请缩短职位描述，或更换模型。",
+    OUTPUT_UNTRUSTED: "AI 没有给出可用的分析结果。请重试，或更换模型。",
+    SCHEMA_INVALID: "MarketFit 无法用这份职位和简历组装出有效的请求。",
+    PAYLOAD_TOO_LARGE: "这次请求太大了。请精简简历或职位描述。",
+    CREDENTIAL_INVALID: "这个 API Key 看起来不完整。请检查后重试。",
+    pdfMissing: "请先选择一份 PDF 简历。",
+    pdfNotPdf: "只支持 PDF 格式的简历。",
+    pdfTooLarge: "这份 PDF 太大了。请使用小于 {mb} MB 的文件。",
+    pdfEmpty: "这份 PDF 是空文件。",
+    pdfTooManyPages: "这份 PDF 页数过多。请使用不超过 {pages} 页的简历。",
+    pdfNoText: "没有找到可选中的文字。请上传文字版 PDF，而不是扫描件。",
+    pdfPassword: "这份 PDF 有密码保护。请上传未加密的版本。",
+    pdfNotReadable: "这个文件不是可读的 PDF。",
+    pdfUnreadable: "这份 PDF 在本机无法读取。",
+    // 以前直接以机器 token 形式出现在界面上的抓取内部信息。
+    methodSchemaOrgJsonld: "页面结构化数据", methodSemanticSelector: "页面版式", methodManualPaste: "你粘贴的文本", methodEmpty: "没有读到内容",
+    methodGreenhouseAdapter: "Greenhouse", methodLeverAdapter: "Lever", methodWorkdayAdapter: "Workday", methodGenericSpaAdapter: "动态页面",
+    NO_JOB_CONTENT: "没有找到职位正文", JOB_TEXT_TOO_SHORT: "职位正文太短",
+    NO_JOB_STRUCTURE_SIGNALS: "没有找到任职要求或岗位职责部分",
+    LIKELY_NAV_OR_LOGIN_TEXT: "这个页面看起来是导航栏或登录墙"
   }
 };
 
 export function t(locale, key) {
   return MESSAGES[locale]?.[key] || MESSAGES.en[key] || key;
+}
+
+/**
+ * The message for a thrown error, in the reader's language.
+ *
+ * Errors are built deep in the provider, PDF and schema layers, which have no
+ * locale — so they carry a code and any interpolated values, and the sentence is
+ * chosen here. Previously each layer baked an English sentence into the Error and
+ * the panel rendered `error.message` verbatim, so a Chinese user hit an English
+ * wall the moment anything went wrong.
+ *
+ * A code with no translation falls back to that English message rather than to the
+ * key name: a wrong-language sentence still tells the user what happened, and the
+ * audit fails on any code missing from either locale so it does not stay that way.
+ */
+export function errorText(locale, error, fallbackKey = "analysisFailed") {
+  const code = error?.code || "";
+  if (code && MESSAGES[locale]?.[code]) return format(locale, code, error.params || {});
+  // A provider's own refusal text is the model speaking, already in the output
+  // language it was asked for; passing it through beats replacing it with a generic.
+  if (error?.message) return error.message;
+  return t(locale, fallbackKey);
 }
 
 export function format(locale, key, values = {}) {

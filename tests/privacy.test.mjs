@@ -79,17 +79,30 @@ test("a stored report carries no CV text, because nothing renders the quotes", (
   assert.equal(payload.evidence.requirements[0].name, "PyTorch");
 });
 
-test("optional AI payload preview redacts common PII", () => {
-  const preview = buildRemoteTransmissionPreview({ profile: { cvText: "A. User user@example.com +1 415 555 0123" }, job: { sourceText: "Apply at https://example.com" }, provider: "openai-api", transport: "direct_provider_api" });
-  assert.equal(preview.profile.includes("user@example.com"), false);
-  assert.equal(preview.job.includes("https://example.com"), false);
-  assert.match(preview.note, /Preview only/i);
-  assert.equal(preview.transport, "direct_provider_api");
-  assert.equal(preview.note.includes("Local AI Bridge"), false);
+test("optional AI payload preview redacts common PII, in the reader's language", () => {
+  const of = (locale) => buildRemoteTransmissionPreview({
+    profile: { cvText: "A. User user@example.com +1 415 555 0123" },
+    job: { sourceText: "Apply at https://example.com" },
+    provider: "OpenAI", transport: "direct_provider_api", locale
+  });
+  for (const locale of ["en", "zh"]) {
+    const preview = of(locale);
+    assert.equal(preview.profile.includes("user@example.com"), false);
+    assert.equal(preview.profile.includes("415 555 0123"), false);
+    assert.equal(preview.job.includes("https://example.com"), false);
+    assert.equal(preview.transport, "direct_provider_api");
+    assert.match(preview.note, /OpenAI/);
+  }
+  // This preview is dumped into the panel verbatim, so it was an English paragraph
+  // for every reader — including a promise about a Bridge route that no longer exists.
+  assert.match(of("zh").note, /仅为预览/);
+  assert.match(of("zh").profile, /已移除邮箱/);
+  assert.match(of("en").note, /Preview only/);
 });
 
-test("CLI payload preview identifies the local Bridge route", () => {
-  const preview = buildRemoteTransmissionPreview({ profile: { cvText: "CV" }, job: { sourceText: "JD" }, provider: "codex", transport: "local_cli_bridge" });
-  assert.equal(preview.transport, "local_cli_bridge");
-  assert.match(preview.note, /Local AI Bridge/);
+test("with no provider chosen, the preview says nothing is sent yet", () => {
+  const preview = buildRemoteTransmissionPreview({ profile: { cvText: "CV" }, job: { sourceText: "JD" }, locale: "zh" });
+  assert.equal(preview.transport, "provider_not_selected");
+  assert.match(preview.note, /不会发送任何内容/);
+  assert.equal(/Bridge/i.test(JSON.stringify(preview)), false, "the local Bridge route was removed with the CLI providers");
 });

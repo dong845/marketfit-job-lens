@@ -4,7 +4,7 @@ import { createDirectApiClient } from "../ai/directApiClient.js";
 import { buildRemoteTransmissionPreview } from "../privacy/redaction.js";
 import { API_PROVIDERS, MODELS, modelsForProvider } from "../ai/models.js";
 import { configurePdfWorker, extractResumePdf } from "../profile/pdfResume.js";
-import { applyTranslations, format, t } from "../ui/i18n.js";
+import { applyTranslations, errorText, format, t } from "../ui/i18n.js";
 import { escapeHtml, renderAnalysisHtml } from "../ui/analysisView.js";
 import { LATEST_KEY, buildReportPayload, expiredReportKeys, reportKey, reportUrl, storedReportKeys } from "../report/payload.js";
 
@@ -101,7 +101,7 @@ async function loadResumePdf() {
     setStatus(format(locale, "pdfReady", { name: resume.fileName, pages: resume.pageCount }));
   } catch (error) {
     fields.cvPdf.value = "";
-    fields.cvFileStatus.textContent = error.message || t(locale, "pdfFailed");
+    fields.cvFileStatus.textContent = errorText(locale, error, "pdfFailed");
     setStatus(t(locale, "pdfFailed"));
   }
 }
@@ -205,6 +205,26 @@ async function clearSession() {
 }
 
 /**
+ * How the job text was obtained, in words.
+ *
+ * extraction.method is an internal token — semantic_selector, greenhouse_adapter,
+ * manual_paste — and it was printed straight into the job summary line, so both
+ * languages showed the same English snake_case. An unknown method falls back to the
+ * token rather than to nothing: a label we forgot to add still beats a blank.
+ */
+/** The provider's display name, so the preview reads "OpenAI" rather than "openai-api". */
+function providerLabelKey(provider) {
+  return { "openai-api": "openaiApi", "anthropic-api": "anthropicApi", "deepseek-api": "deepseekApi" }[provider] || "provider";
+}
+
+function captureMethodLabel(method, uiLocale) {
+  if (!method) return t(uiLocale, "unknown");
+  const key = `method${method.replace(/(^|_)([a-z])/g, (_, __, letter) => letter.toUpperCase())}`;
+  const label = t(uiLocale, key);
+  return label === key ? method : label;
+}
+
+/**
  * Removes every stored report.
  *
  * This used to remove three key names that nothing in the extension ever writes,
@@ -229,7 +249,7 @@ function renderCurrentJobSummary() {
   fields.currentJobMeta.textContent = [currentJob.title || t(locale, "unknown"), currentJob.company, currentJob.location, hostname(currentJob.url)].filter(Boolean).join(" · ");
   fields.currentJobQuality.textContent = format(locale, "jobQualityLine", {
     chars: currentJob.extraction?.textLength || currentJob.sourceText.length,
-    method: currentJob.extraction?.method || t(locale, "unknown"),
+    method: captureMethodLabel(currentJob.extraction?.method, locale),
     confidence: Math.round((currentJob.extraction?.confidence || 0) * 100)
   });
 }
@@ -246,8 +266,9 @@ async function toggleRedactionPreview() {
   const preview = buildRemoteTransmissionPreview({
     profile: getProfile(),
     job,
-    provider: provider || t(locale, "chooseProvider"),
-    transport: API_PROVIDERS.includes(provider) ? "direct_provider_api" : "provider_not_selected"
+    provider: provider ? t(locale, providerLabelKey(provider)) : "",
+    transport: API_PROVIDERS.includes(provider) ? "direct_provider_api" : "provider_not_selected",
+    locale
   });
   fields.redactionPreview.textContent = JSON.stringify(preview, null, 2);
   fields.redactionPreview.hidden = false;
@@ -271,7 +292,11 @@ function renderCaptureFailure() {
 }
 
 function renderJobNeedsConfirmation(job) {
-  const reasons = job?.extraction?.qualityReasons?.length ? job.extraction.qualityReasons.join(", ") : t(locale, "lowConfidence");
+  // These arrive as NO_JOB_CONTENT-style tokens and were printed verbatim; they are
+  // the panel's explanation of why a capture is unusable, so they have to be readable.
+  const reasons = job?.extraction?.qualityReasons?.length
+    ? job.extraction.qualityReasons.map((reason) => t(locale, reason)).join(locale === "zh" ? "；" : "; ")
+    : t(locale, "lowConfidence");
   fields.result.innerHTML = `<div class="empty action-message"><p>${escapeHtml(qualityMessage(job))}</p><p class="meta">${escapeHtml(reasons)}</p><div class="control-row"><button id="retryJobCapture" class="secondary" type="button">${escapeHtml(t(locale, "refreshJob"))}</button><button id="manualJobFallback" class="secondary" type="button">${escapeHtml(t(locale, "editJob"))}</button></div></div>`;
   byId("retryJobCapture")?.addEventListener("click", () => captureCurrentJob({ announceFailure: true }));
   byId("manualJobFallback")?.addEventListener("click", openJobEditor);
@@ -356,7 +381,7 @@ async function handleProviderChange() {
   } catch (error) {
     updateAgentProviderUi();
     fields.accessRetryRow.hidden = false;
-    setStatus(error.message || t(locale, "directAccessDenied"));
+    setStatus(errorText(locale, error, "directAccessDenied"));
   }
 }
 
@@ -368,7 +393,7 @@ async function grantProviderAccess() {
     fields.accessRetryRow.hidden = true;
     setStatus(t(locale, "jobReadyForAi"));
   } catch (error) {
-    setStatus(error.message || t(locale, "directAccessDenied"));
+    setStatus(errorText(locale, error, "directAccessDenied"));
   }
 }
 
@@ -402,7 +427,7 @@ async function runAgentReview() {
         fields.accessRetryRow.hidden = true;
       } catch (error) {
         fields.accessRetryRow.hidden = false;
-        return setStatus(error.message || t(locale, "directAccessDenied"));
+        return setStatus(errorText(locale, error, "directAccessDenied"));
       }
     }
 
@@ -468,7 +493,7 @@ async function runAgentReview() {
     revealResult();
     void recordDuration(model, Math.round((Date.now() - startedAt) / 1000), inputChars);
   } catch (error) {
-    const message = error.message || t(locale, "analysisFailed");
+    const message = errorText(locale, error, "analysisFailed");
     setStatus(message);
     renderActionMessage(message);
   } finally {

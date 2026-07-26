@@ -1,14 +1,17 @@
-import { createNormalizedJob } from "./schema.js";
+import { CAPTURE_METHODS, createNormalizedJob } from "./schema.js";
+
+export { CAPTURE_METHODS };
+
 
 export function extractJob(snapshot = {}) {
   const jsonLdJob = parseJobPosting(snapshot.jsonLd || []);
-  if (jsonLdJob && isValidJobDescription(jsonLdJob.sourceText)) return enrich(jsonLdJob, snapshot, "schema_org_jsonld", 0.96, false);
+  if (jsonLdJob && isValidJobDescription(jsonLdJob.sourceText)) return enrich(jsonLdJob, snapshot, CAPTURE_METHODS.jsonLd, 0.96, false);
 
   const adapter = detectAdapter(snapshot.url, snapshot.siteHint);
   const capturedText = longestText(snapshot.semantic?.sourceText, snapshot.text);
   if (capturedText) {
     const sourceText = sanitizeCapturedText(capturedText);
-    const method = adapter || "semantic_selector";
+    const method = adapter || CAPTURE_METHODS.semantic;
     const quality = validateCapturedJob({ sourceText, extraction: { confidence: Number(snapshot.qualityScore || 0) } });
     return enrich({
       title: snapshot.semantic?.title || jsonLdJob?.title || titleFromSnapshot(snapshot),
@@ -19,7 +22,7 @@ export function extractJob(snapshot = {}) {
       sourceText
     }, snapshot, method, confidenceFor(method, quality, snapshot), !quality.ok);
   }
-  return enrich({ title: jsonLdJob?.title || titleFromSnapshot(snapshot), company: jsonLdJob?.company || "", location: jsonLdJob?.location || "", sourceText: "" }, snapshot, "empty", 0, true);
+  return enrich({ title: jsonLdJob?.title || titleFromSnapshot(snapshot), company: jsonLdJob?.company || "", location: jsonLdJob?.location || "", sourceText: "" }, snapshot, CAPTURE_METHODS.empty, 0, true);
 }
 
 export function createManualJob(input = {}) {
@@ -28,7 +31,7 @@ export function createManualJob(input = {}) {
   return enrich({
     title: input.title || titleFromText(sourceText), company: input.company || "", location: input.location || "",
     employmentType: input.employmentType || "", salary: input.salary || "", sourceText
-  }, input, "manual_paste", quality.ok ? 0.86 : 0.3, !quality.ok);
+  }, input, CAPTURE_METHODS.manual, quality.ok ? 0.86 : 0.3, !quality.ok);
 }
 
 export function sanitizeCapturedText(value) {
@@ -148,7 +151,7 @@ function longestText(...values) {
 function confidenceFor(method, quality, snapshot) {
   const captureScore = Number(snapshot.qualityScore || 0);
   if (!quality.ok) return Math.max(0.25, Math.min(0.5, captureScore || quality.confidence || 0.35));
-  if (method === "semantic_selector") return Math.max(0.66, Math.min(0.82, captureScore || 0.66));
+  if (method === CAPTURE_METHODS.semantic) return Math.max(0.66, Math.min(0.82, captureScore || 0.66));
   if (method.includes("adapter")) return Math.max(0.74, Math.min(0.9, captureScore || 0.74));
   return Math.max(0.6, Math.min(0.78, captureScore || 0.66));
 }
@@ -161,10 +164,10 @@ function flatten(value) {
 
 function detectAdapter(url = "", siteHint = "") {
   const value = `${url} ${siteHint}`.toLowerCase();
-  if (value.includes("greenhouse")) return "greenhouse_adapter";
-  if (value.includes("lever.co") || value.includes("jobs.lever")) return "lever_adapter";
-  if (value.includes("workday")) return "workday_adapter";
-  if (value.includes("react") || value.includes("spa")) return "generic_spa_adapter";
+  if (value.includes("greenhouse")) return CAPTURE_METHODS.greenhouse;
+  if (value.includes("lever.co") || value.includes("jobs.lever")) return CAPTURE_METHODS.lever;
+  if (value.includes("workday")) return CAPTURE_METHODS.workday;
+  if (value.includes("react") || value.includes("spa")) return CAPTURE_METHODS.genericSpa;
   return "";
 }
 

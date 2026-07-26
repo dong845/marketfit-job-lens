@@ -68,7 +68,10 @@ const i18n = readFileSync(join(root, "src/ui/i18n.js"), "utf8");
 const block = (name) => {
   const start = i18n.indexOf(`${name}: {`);
   const end = name === "en" ? i18n.indexOf("zh: {") : i18n.indexOf("\n};");
-  return new Set([...i18n.slice(start, end).matchAll(/(?:^|[{,]\s*)([A-Za-z][A-Za-z0-9]*)\s*:/gm)].map((m) => m[1]));
+  // Leading whitespace and underscores both matter: "^" does not skip indentation, so
+  // every key that began a line was invisible here, and error codes are keys too. The
+  // en/zh sync check missed both faults because it under-counted each side equally.
+  return new Set([...i18n.slice(start, end).matchAll(/(?:^\s*|[{,]\s*)([A-Za-z][A-Za-z0-9_]*)\s*:/gm)].map((m) => m[1]));
 };
 const en = block("en"), zh = block("zh");
 for (const k of en) if (!zh.has(k) && k !== "en") fail.push(`i18n: "${k}" missing from zh`);
@@ -98,8 +101,6 @@ for (const m of view.matchAll(/\$\{[^}]+\}([A-Za-z][A-Za-z0-9]*)`/g)) {
   for (const key of en) if (key.endsWith(m[1])) usedKeys.add(key);
 }
 for (const m of readFileSync(join(root, "src/ai/models.js"), "utf8").matchAll(/labelKey: "([^"]+)"/g)) usedKeys.add(m[1]);
-const orphans = [...en].filter((k) => k !== "en" && !usedKeys.has(k));
-if (orphans.length) warn.push(`i18n keys with no visible consumer: ${orphans.join(", ")}`);
 ok.push(`i18n: ${en.size} keys, en/zh in sync`);
 
 // ---- 5. no secrets, debug output, or unfinished markers in shipped code
@@ -170,6 +171,58 @@ for (const sheet of ["src/sidepanel/sidepanel.css", "src/report/report.css"]) {
   if (missing.length) fail.push(`${rel(join(root, sheet))} has no rule for: ${missing.join(", ")}`);
 }
 ok.push(`both stylesheets cover all ${emitted.size} rendered classes`);
+
+// ---- 10. nothing user-visible is available in only one language
+// Errors are built in layers that have no locale, so they carry a code the panel
+// translates. A code with no entry falls back to its English message, which is how
+// a Chinese user used to hit an English wall the moment anything failed — silently,
+// because the fallback works. This makes that silence fail instead.
+const thrownCodes = new Set();
+for (const file of jsFiles) {
+  const src = readFileSync(file, "utf8");
+  for (const m of src.matchAll(/new (?:DirectApiError|ResumePdfError)\((?:[^;]*?),\s*"([a-zA-Z][\w]*)"/g)) thrownCodes.add(m[1]);
+  for (const m of src.matchAll(/new BridgeError\("([A-Z_]+)"/g)) thrownCodes.add(m[1]);
+}
+// A BridgeError raised while validating our OWN request never reaches the panel as
+// itself — parseTaskRequest runs before the call, on data the panel built.
+const internalCodes = new Set(["TASK_NOT_ALLOWED", "PROVIDER_INVALID", "PRIVACY_MODE_INVALID", "PROVIDER_REFUSED"]);
+for (const code of thrownCodes) {
+  if (internalCodes.has(code)) continue;
+  const missing = ["en", "zh"].filter((loc) => !block(loc).has(code));
+  if (missing.length) fail.push(`error code "${code}" has no ${missing.join("/")} message — it would surface in English`);
+}
+ok.push(`all ${thrownCodes.size - internalCodes.size} user-facing error codes are translated`);
+
+// Capture internals reach the panel as tokens too, and had the same problem. Read
+// from the exported map rather than guessing at string literals: guessing invented a
+// "json_ld" that does not exist and missed "schema_org_jsonld" and "empty", which do.
+const captureTokens = [...readFileSync(join(root, "src/extraction/schema.js"), "utf8")
+  .matchAll(/^\s*[a-zA-Z]+: "([a-z_]+)",?$/gm)].map((m) => m[1]);
+const qualityReasons = [...readFileSync(join(root, "src/extraction/extractJob.js"), "utf8")
+  .matchAll(/reasons\.push\("([A-Z_]+)"\)/g)].map((m) => m[1]);
+for (const token of new Set(captureTokens)) {
+  const key = `method${token.replace(/(^|_)([a-z])/g, (_, __, c) => c.toUpperCase())}`;
+  const missing = ["en", "zh"].filter((loc) => !block(loc).has(key));
+  if (missing.length) fail.push(`capture method "${token}" has no ${missing.join("/")} label (${key}) — it would print as a raw token`);
+}
+for (const reason of new Set(qualityReasons)) {
+  const missing = ["en", "zh"].filter((loc) => !block(loc).has(reason));
+  if (missing.length) fail.push(`capture quality reason "${reason}" has no ${missing.join("/")} label — it would print as a raw token`);
+}
+ok.push(`all ${new Set(captureTokens).size} capture methods and ${new Set(qualityReasons).size} quality reasons are labelled in both languages`);
+
+// Codes and tokens are reached through errorText() and captureMethodLabel() rather
+// than a literal t("…"), so they are only visibly consumed once those sets are known.
+for (const code of thrownCodes) usedKeys.add(code);
+for (const token of captureTokens) usedKeys.add(`method${token.replace(/(^|_)([a-z])/g, (_, __, c) => c.toUpperCase())}`);
+for (const reason of qualityReasons) usedKeys.add(reason);
+// A quoted string in an error-producing module that happens to be a key IS the key:
+// statusMessage() returns codes, and a ternary picks between two of them.
+for (const f of ["src/ai/directApiClient.js", "src/ai/providerPayload.js", "src/profile/pdfResume.js", "src/profile/pdfValidation.js", "src/sidepanel/sidepanel.js", "src/privacy/redaction.js"]) {
+  for (const m of readFileSync(join(root, f), "utf8").matchAll(/"([A-Za-z][A-Za-z0-9_]*)"/g)) if (en.has(m[1])) usedKeys.add(m[1]);
+}
+const orphans = [...en].filter((k) => k !== "en" && !usedKeys.has(k));
+if (orphans.length) warn.push(`i18n keys with no visible consumer: ${orphans.join(", ")}`);
 
 console.log(`\n${"=".repeat(64)}\nFAIL (${fail.length})`);
 fail.forEach((f) => console.log("  ✗ " + f));

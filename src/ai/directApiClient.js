@@ -23,10 +23,21 @@ export const DIRECT_PROVIDER_ORIGINS = Object.freeze({
   "deepseek-api": "https://api.deepseek.com/*"
 });
 
+/**
+ * A provider failure the user has to read.
+ *
+ * The code is what the panel translates; the English message is the fallback for
+ * anywhere without a locale (tests, the smoke test) and the last resort if a code
+ * ever ships without a translation. Values interpolated into the sentence — an HTTP
+ * status, a transport cause — travel in `params` rather than baked into the string,
+ * because a baked-in sentence can only ever be one language.
+ */
 export class DirectApiError extends Error {
-  constructor(message) {
+  constructor(message, code = "", params = {}) {
     super(message);
     this.name = "DirectApiError";
+    this.code = code;
+    this.params = params;
   }
 }
 
@@ -49,10 +60,10 @@ export function createDirectApiClient({ fetchImpl = globalThis.fetch, permission
     async runTask(value) {
       const request = parseTaskRequest(value);
       if (!await hasProviderAccess(request.provider, permissionsApi)) {
-        throw new DirectApiError("MarketFit cannot reach this provider yet. Select the provider again to grant access.");
+        throw new DirectApiError("MarketFit cannot reach this provider yet. Select the provider again to grant access.", "providerAccessMissing");
       }
       const run = { "openai-api": runOpenAi, "anthropic-api": runAnthropic, "deepseek-api": runDeepSeek }[request.provider];
-      if (!run) throw new DirectApiError("This provider is not supported.");
+      if (!run) throw new DirectApiError("This provider is not supported.", "providerUnsupported");
       const result = await run(request, fetchImpl);
       return {
         requestId: request.requestId,
@@ -73,10 +84,10 @@ export function createDirectApiClient({ fetchImpl = globalThis.fetch, permission
  */
 async function ensureProviderAccess(provider, permissionsApi) {
   const origin = DIRECT_PROVIDER_ORIGINS[provider];
-  if (!origin) throw new DirectApiError("Direct API access is available only for API-key providers.");
+  if (!origin) throw new DirectApiError("Direct API access is available only for API-key providers.", "providerUnsupported");
   if (!permissionsApi?.request) return;
   const granted = await permissionsApi.request({ origins: [origin] });
-  if (!granted) throw new DirectApiError("Direct access to the selected AI provider was not allowed.");
+  if (!granted) throw new DirectApiError("Direct access to the selected AI provider was not allowed.", "directAccessDenied");
 }
 
 async function hasProviderAccess(provider, permissionsApi) {
@@ -183,17 +194,21 @@ async function sendJson(fetchImpl, url, headers, body) {
     try {
       response = await fetchImpl(url, { method: "POST", headers, body: JSON.stringify(body), signal: controller.signal });
     } catch (error) {
-      if (controller.signal.aborted) throw new DirectApiError(TIMEOUT_MESSAGE);
+      if (controller.signal.aborted) throw new DirectApiError(TIMEOUT_MESSAGE, "providerTimeout");
       // Keep the underlying cause: "could not be reached" alone hides whether it was
       // DNS, TLS, a proxy, or the network being down, which is the whole diagnosis.
       const cause = error?.cause?.code || error?.cause?.message || error?.message;
-      throw new DirectApiError(cause ? `The selected AI provider could not be reached (${String(cause).slice(0, 120)}).` : "The selected AI provider could not be reached.");
+      throw new DirectApiError(
+        cause ? `The selected AI provider could not be reached (${String(cause).slice(0, 120)}).` : "The selected AI provider could not be reached.",
+        cause ? "providerUnreachableCause" : "providerUnreachable",
+        { cause: String(cause || "").slice(0, 120) }
+      );
     }
     let payload = null;
     try {
       payload = await response.json();
     } catch {
-      if (controller.signal.aborted) throw new DirectApiError(TIMEOUT_MESSAGE);
+      if (controller.signal.aborted) throw new DirectApiError(TIMEOUT_MESSAGE, "providerTimeout");
     }
     // Status first. Parsing before checking it meant an edge or proxy page — which
     // is how rate limits and outages usually arrive — erased the one fact that
@@ -201,21 +216,27 @@ async function sendJson(fetchImpl, url, headers, body) {
     if (!response.ok) {
       const message = String(payload?.error?.message || payload?.message || "").slice(0, 500);
       if (response.status === 400 && /schema|output_config|json_schema|format/i.test(message)) throw new StructuredOutputRejected(message);
-      throw new DirectApiError(message || statusMessage(response.status));
+      throw new DirectApiError(message || statusMessage(response.status).message, message ? "" : statusMessage(response.status).code, { status: response.status });
     }
-    if (!payload) throw new DirectApiError("The selected AI provider returned an unreadable response.");
+    if (!payload) throw new DirectApiError("The selected AI provider returned an unreadable response.", "providerUnreadable");
     return payload;
   } finally {
     clearTimeout(timer);
   }
 }
 
-/** What an HTTP status means for someone who just paid for an analysis. */
+/**
+ * What an HTTP status means for someone who just paid for an analysis.
+ *
+ * Returns a code as well as the sentence: the provider's own error text is passed
+ * through untranslated when it has one, but when it does not, this is the whole
+ * message the user sees and it has to arrive in their language.
+ */
 function statusMessage(status) {
-  if (status === 401 || status === 403) return `The AI provider rejected the API key (HTTP ${status}). Check the key and try again.`;
-  if (status === 429) return "The AI provider is rate limiting this key (HTTP 429). Wait a moment and try again.";
-  if (status >= 500) return `The AI provider is unavailable right now (HTTP ${status}). Try again shortly.`;
-  return `The AI provider rejected the request (HTTP ${status}).`;
+  if (status === 401 || status === 403) return { code: "providerKeyRejected", message: `The AI provider rejected the API key (HTTP ${status}). Check the key and try again.` };
+  if (status === 429) return { code: "providerRateLimited", message: "The AI provider is rate limiting this key (HTTP 429). Wait a moment and try again." };
+  if (status >= 500) return { code: "providerUnavailable", message: `The AI provider is unavailable right now (HTTP ${status}). Try again shortly.` };
+  return { code: "providerRejected", message: `The AI provider rejected the request (HTTP ${status}).` };
 }
 
 class StructuredOutputRejected extends Error {}

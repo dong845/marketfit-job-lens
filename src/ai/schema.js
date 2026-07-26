@@ -464,7 +464,7 @@ function parseLevelComparison(value) {
  */
 function softText(value, maxLength) {
   if (typeof value !== "string") return "";
-  const normalized = value.trim();
+  const normalized = withoutBlockIds(value);
   return normalized.length > maxLength ? normalized.slice(0, maxLength).trim() : normalized;
 }
 
@@ -630,8 +630,28 @@ function text(value, label, maxLength) {
  */
 function outputText(value, label, maxLength) {
   if (typeof value !== "string" || !value.trim()) throw new BridgeError("SCHEMA_INVALID", `${label} is required.`);
-  const normalized = value.trim();
+  const normalized = withoutBlockIds(value);
+  if (!normalized) throw new BridgeError("SCHEMA_INVALID", `${label} is required.`);
   return normalized.length > maxLength ? normalized.slice(0, maxLength).trim() : normalized;
+}
+
+/**
+ * Removes CV-001 / JD-004 citations from prose the reader sees.
+ *
+ * The reader is never shown the block list, so an ID in a sentence is noise in an
+ * alphabet that may not even be theirs — "（JD-001）" in the middle of a Chinese
+ * explanation. The prompt asks models not to do this and they mostly comply, which
+ * is exactly the problem: a rule that holds most of the time still ships the defect,
+ * and only this layer can stop it. Grounding is unaffected — refs travel in the
+ * evidence arrays, which is what parseEvidence resolves.
+ */
+function withoutBlockIds(value) {
+  return String(value)
+    .replace(/[（(\[【]\s*(?:CV|JD)-\d{3}(?:\s*[,、;；]\s*(?:CV|JD)-\d{3})*\s*[）)\]】]/g, "")
+    .replace(/\s*(?:CV|JD)-\d{3}\b/g, "")
+    .replace(/\s{2,}/g, " ")
+    .replace(/\s+([,.;:，。；：])/g, "$1")
+    .trim();
 }
 
 function optionalText(value, label, maxLength) {
