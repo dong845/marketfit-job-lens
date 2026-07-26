@@ -125,7 +125,9 @@ code { font-size: 11px; }
 .verdict.tone-go .verdict-word { color: var(--accent-strong); }
 .verdict.tone-warn .verdict-word { color: var(--warn); }
 .verdict.tone-bad .verdict-word { color: var(--danger); }
-.verdict-sub { font-size: 12px; line-height: 1.45; }
+/* A gloss on the verdict word, not a second headline: it exists so "worth applying"
+   and "fix gaps first" can be ranked against each other at a glance. */
+.verdict-sub { color: var(--muted); font-size: 11px; line-height: 1.45; }
 /* The tally behind the word, so the conclusion can be checked rather than trusted. */
 .verdict-score { border-top: 1px solid var(--line); color: var(--muted); font-size: 11px; font-variant-numeric: tabular-lining-nums; line-height: 1.45; padding-top: 6px; }
 .verdict-headline { font-size: 14px; font-weight: 700; line-height: 1.4; }

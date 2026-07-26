@@ -216,7 +216,7 @@ function renderActions(actions, locale) {
     return `<h4 class="action-group tone-${escapeHtml(PRIORITY_TONE[group.priority] || "muted")}">${escapeHtml(t(locale, priorityKey(group.priority)))}</h4>
       <ol class="action-list">${steps}</ol>`;
   }).join("");
-  return `<section class="result-card actions"><h3>${escapeHtml(t(locale, "suggestedActions"))}</h3>
+  return `<section class="result-card"><h3>${escapeHtml(t(locale, "suggestedActions"))}</h3>
     <p class="meta">${escapeHtml(t(locale, "actionStepsHint"))}</p>${blocks}</section>`;
 }
 

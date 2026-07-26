@@ -61,18 +61,28 @@ h1, h2, h3, h4, p { margin: 0; }
 .requirement.tone-warn { border-left-color: var(--warn); }
 .requirement.tone-bad { border-left-color: var(--danger); }
 .requirement.tone-muted { border-left-color: var(--line); }
-.requirement-head { align-items: baseline; display: flex; gap: 10px; justify-content: space-between; }
-.requirement-name { font-size: 15px; font-weight: 700; }
+.requirement-head { align-items: baseline; display: flex; flex-wrap: wrap; gap: 8px; }
+.requirement-name { flex: 1 1 auto; font-size: 15px; font-weight: 700; }
 .requirement .meta { color: var(--muted); font-size: 13px; line-height: 1.5; }
+.action { align-items: baseline; display: flex; gap: 10px; }
 .action p { font-size: 14px; line-height: 1.55; }
+.action-index { color: var(--muted); flex: 0 0 auto; font-size: 13px; font-variant-numeric: tabular-lining-nums; font-weight: 700; min-width: 16px; }
+.action-group { font-size: 12px; font-weight: 750; letter-spacing: .04em; margin-top: 8px; text-transform: uppercase; }
+.action-group:first-of-type { margin-top: 0; }
+.action-group.tone-bad { color: var(--danger); }
+.action-group.tone-warn { color: var(--warn); }
+.action-group.tone-muted { color: var(--muted); }
 
 .tag { border-radius: 99px; flex: 0 0 auto; font-size: 10px; font-weight: 750; letter-spacing: .03em; padding: 3px 9px; text-transform: uppercase; white-space: nowrap; }
 .tag-ok { background: var(--soft-good); color: var(--good); }
 .tag-warn { background: var(--soft-warn); color: var(--warn); }
 .tag-bad { background: var(--soft-danger); color: var(--danger); }
 .tag-muted { background: #eef2f4; color: var(--muted); }
+.tag-level { background: transparent; border: 1px solid var(--line); color: var(--muted); }
 
-.report-foot { border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; line-height: 1.5; margin-top: 20px; padding-top: 14px; }
+/* The analysis now closes with the AI disclaimer itself; the page-level footer that
+   repeated it is gone. Kept as the note's own styling instead. */
+.analysis-note { border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; line-height: 1.5; margin-top: 20px; padding-top: 14px; }
 
 @media print {
   body { background: #fff; padding: 0; }
@@ -85,9 +95,21 @@ h1, h2, h3, h4, p { margin: 0; }
 .verdict.tone-ok { border-left-color: var(--good); }
 .verdict.tone-warn { border-left-color: var(--warn); }
 .verdict.tone-bad { border-left-color: var(--danger); }
-.verdict-head { display: flex; }
+.verdict.tone-go { border-left-color: var(--accent-strong); }
+.verdict-head { align-items: center; display: flex; flex-wrap: wrap; gap: 10px; }
+.verdict-word { font-size: 28px; font-weight: 800; letter-spacing: -.015em; line-height: 1.15; }
+.verdict.tone-ok .verdict-word { color: var(--good); }
+.verdict.tone-go .verdict-word { color: var(--accent-strong); }
+.verdict.tone-warn .verdict-word { color: var(--warn); }
+.verdict.tone-bad .verdict-word { color: var(--danger); }
+.verdict-sub { color: var(--muted); font-size: 13px; line-height: 1.5; }
+.verdict-score { border-top: 1px solid var(--line); color: var(--muted); font-size: 13px; font-variant-numeric: tabular-lining-nums; line-height: 1.5; padding-top: 8px; }
 .verdict-headline { font-size: 18px; font-weight: 700; line-height: 1.4; }
+.verdict-effort { font-size: 14px; line-height: 1.55; }
 .verdict-rationale { color: var(--muted); font-size: 14px; line-height: 1.6; }
+.verdict-decisive { border-top: 1px solid var(--line); font-size: 14px; line-height: 1.6; padding-top: 9px; }
+.verdict-decisive strong { color: var(--accent-strong); }
+.level-compare { align-items: baseline; display: flex; font-size: 14px; gap: 8px; line-height: 1.55; }
 .how-to-close { font-size: 13px; line-height: 1.55; margin-top: 6px; }
 .how-to-close strong { color: var(--accent-strong); }
 

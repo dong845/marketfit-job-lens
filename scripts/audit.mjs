@@ -151,6 +151,26 @@ const unreachable = collect(join(root, "src")).filter((f) => f.endsWith(".js") &
 if (unreachable.length) fail.push(`unreachable src modules: ${unreachable.map(rel).join(", ")}`);
 ok.push(`all ${seen.size} reachable modules are reachable from an entry point`);
 
+// ---- 9. every class the renderer emits is styled on both surfaces
+// The panel and the report share renderAnalysisHtml but keep separate stylesheets,
+// so a new element lands unstyled on whichever one was not updated — and an unstyled
+// class also catches the reverse mistake, a hook added and never given a rule.
+const viewSource = readFileSync(join(root, "src/ui/analysisView.js"), "utf8");
+const emitted = new Set();
+for (const m of viewSource.matchAll(/class="([^"]*)"/g)) {
+  // Interpolated class names split across quotes inside the template, so only
+  // literal identifiers count; the computed ones are enumerated below.
+  for (const cls of m[1].split(/\s+/)) if (/^[a-z][a-z0-9-]*$/i.test(cls)) emitted.add(cls);
+}
+// tone-* and tag-* are built from a variable; enumerate the tones they can take.
+for (const tone of ["ok", "go", "warn", "bad", "muted"]) emitted.add(`tone-${tone}`).add(`tag-${tone}`);
+for (const sheet of ["src/sidepanel/sidepanel.css", "src/report/report.css"]) {
+  const css = readFileSync(join(root, sheet), "utf8");
+  const missing = [...emitted].filter((cls) => !css.includes(`.${cls}`));
+  if (missing.length) fail.push(`${rel(join(root, sheet))} has no rule for: ${missing.join(", ")}`);
+}
+ok.push(`both stylesheets cover all ${emitted.size} rendered classes`);
+
 console.log(`\n${"=".repeat(64)}\nFAIL (${fail.length})`);
 fail.forEach((f) => console.log("  ✗ " + f));
 if (!fail.length) console.log("  none");
