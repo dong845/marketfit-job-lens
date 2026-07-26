@@ -96,6 +96,25 @@ export const DEFAULT_MODEL = Object.freeze({
 
 export const API_PROVIDERS = Object.freeze(["openai-api", "anthropic-api", "deepseek-api"]);
 
+/**
+ * Where to get a key for each provider.
+ *
+ * Only Anthropic's deep link is verified reachable from here — OpenAI answers 403
+ * to every path behind bot protection, and DeepSeek is a single-page app that
+ * serves 200 for any path, so neither can confirm a route exists. Rather than ship
+ * a remembered path that may 404, those two link to the console root and the panel
+ * text says which section to open. Deep links in a shipped extension rot anyway;
+ * the host outlives the route.
+ *
+ * keyPrefix is what that provider's keys are known to start with, used only to warn
+ * about a key pasted under the wrong provider — never to reject one.
+ */
+export const PROVIDER_CONSOLES = Object.freeze({
+  "openai-api": { url: "https://platform.openai.com/", keyPrefix: "sk-" },
+  "anthropic-api": { url: "https://platform.claude.com/settings/keys", keyPrefix: "sk-ant-" },
+  "deepseek-api": { url: "https://platform.deepseek.com/", keyPrefix: "sk-" }
+});
+
 export function modelsForProvider(provider) {
   return Object.entries(MODELS)
     .filter(([, model]) => model.provider === provider)

@@ -29,6 +29,8 @@ h1 { font-size: 22px; letter-spacing: 0; }
 h2 { font-size: 14px; letter-spacing: 0; }
 h3 { font-size: 13px; letter-spacing: 0; }
 #status, .help, .meta { color: var(--muted); font-size: 12px; line-height: 1.45; }
+.help a { color: var(--accent-strong); }
+.warning-note { background: var(--soft-warn); border-radius: 6px; color: #6c4b16; font-weight: 600; padding: 6px 8px; }
 .notice { background: var(--soft-teal); border-left: 3px solid var(--accent); color: #21464b; font-size: 12px; line-height: 1.45; padding: 9px 10px; }
 .panel, .result-card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; }
 .panel { padding: 12px; }

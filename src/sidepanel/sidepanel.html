@@ -68,6 +68,10 @@
           <div id="apiProviderMode" class="provider-mode" hidden>
             <label><span data-i18n="sessionApiKey">Session API key</span><input id="apiKey" type="password" autocomplete="off" /></label>
             <label><span data-i18n="apiModel">Model</span><select id="apiModel"></select></label>
+            <!-- Where the key comes from, per provider: creating one is the step that
+                 stops people, and the console URL differs for each. -->
+            <p id="apiKeyHelp" class="help"></p>
+            <p id="apiKeyWarning" class="help warning-note" hidden></p>
             <p class="help" data-i18n="apiDirectHelp">The session key remains only in this open panel.</p>
             <div id="accessRetryRow" class="control-row" hidden><button id="retryProviderAccess" class="secondary" type="button" data-i18n="retryAccess">Allow provider access</button></div>
           </div>

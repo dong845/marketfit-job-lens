@@ -167,3 +167,43 @@ test("the version badge survives translation", () => {
   assert.match(heading, /id="appVersion"/);
   assert.equal(/<h1[^>]*data-i18n/.test(heading), false, "data-i18n on the h1 wipes everything nested in it");
 });
+
+test("each provider explains where its key comes from, and what will block it", async () => {
+  const { API_PROVIDERS, PROVIDER_CONSOLES } = await import("../src/ai/models.js");
+  const { MESSAGES } = await import("../src/ui/i18n.js");
+  for (const provider of API_PROVIDERS) {
+    const key = `apiKeyHelp${provider.replace(/(^|-)([a-z])/g, (_, __, letter) => letter.toUpperCase())}`;
+    for (const locale of ["en", "zh"]) {
+      assert.ok(MESSAGES[locale][key], `${provider} has no ${locale} key hint`);
+      // Creating a key is not the step that stops people — an unfunded account is.
+      assert.match(MESSAGES[locale][key], locale === "zh" ? /余额|充值/ : /credit|balance/);
+    }
+    const console = PROVIDER_CONSOLES[provider];
+    assert.ok(console?.url, `${provider} has no console URL`);
+    assert.doesNotThrow(() => new URL(console.url));
+    assert.equal(new URL(console.url).protocol, "https:");
+  }
+});
+
+test("a console link is a link, never somewhere the extension sends data", () => {
+  // The privacy claim is that the CV and job text reach exactly three API hosts.
+  // These URLs must stay in the markup, not in a fetch.
+  const client = readFileSync(join(root, "src/ai/directApiClient.js"), "utf8");
+  for (const url of ["platform.openai.com", "platform.claude.com", "platform.deepseek.com"]) {
+    assert.equal(client.includes(url), false, `${url} must never appear in the API client`);
+  }
+  // Built from DOM nodes, so a link is never assembled by string concatenation.
+  const help = script.slice(script.indexOf("function renderApiKeyHelp"), script.indexOf("function renderApiKeyWarning"));
+  assert.match(help, /document\.createElement\("a"\)/);
+  assert.match(help, /link\.rel = "noopener noreferrer"/);
+  assert.equal(/innerHTML/.test(help), false);
+});
+
+test("an Anthropic key pasted under another provider is called out, and nothing else is", () => {
+  // OpenAI and DeepSeek keys share the sk- prefix, so no claim may be made there:
+  // a warning that fires on a correct key is worse than no warning at all.
+  const warn = script.slice(script.indexOf("function renderApiKeyWarning"), script.indexOf("function updateApiModelOptions"));
+  assert.match(warn, /anthropic-api/);
+  assert.equal(/startsWith\("sk-"\)/.test(warn), false, "sk- alone cannot identify a provider");
+  assert.match(warn, /fields\.apiKeyWarning\.hidden = !mismatched/);
+});

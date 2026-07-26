@@ -134,16 +134,28 @@ for (const file of jsFiles) {
 ok.push("all innerHTML writes escape their inputs");
 
 // ---- 7. network endpoints are only the three provider APIs
-const hosts = new Set();
+// Two different things wear the same shape. A URL the code FETCHES is a place user
+// data goes, and the privacy claim depends on there being exactly three. A URL the
+// code puts in a link is somewhere the user chooses to navigate, and sends nothing.
+// Collapsing them would either weaken the guarantee or ban console links; keeping
+// them apart means the promise stays exact and stays checkable.
+const fetched = new Set();
+const linked = new Set();
 for (const file of jsFiles) {
   const src = readFileSync(file, "utf8");
   for (const m of src.matchAll(/https?:\/\/[a-zA-Z0-9.\-:{}$]+/g)) {
-    hosts.add(m[0]);
+    // PROVIDER_CONSOLES is the declared home for link destinations; anything else is
+    // treated as an endpoint until someone says otherwise.
+    const consoleBlock = src.slice(src.indexOf("PROVIDER_CONSOLES"), src.indexOf("});", src.indexOf("PROVIDER_CONSOLES")) + 3);
+    (src.includes("PROVIDER_CONSOLES") && consoleBlock.includes(m[0]) ? linked : fetched).add(m[0]);
   }
 }
 const allowed = /^https:\/\/api\.(openai|anthropic|deepseek)\.com/;
-for (const h of hosts) if (!allowed.test(h)) fail.push(`unexpected network host in src/: ${h}`);
-ok.push(`network hosts limited to: ${[...hosts].join(", ")}`);
+const allowedLinks = /^https:\/\/(platform\.openai\.com|platform\.claude\.com|platform\.deepseek\.com)(\/|$)/;
+for (const h of fetched) if (!allowed.test(h)) fail.push(`unexpected network host in src/: ${h}`);
+for (const h of linked) if (!allowedLinks.test(h)) fail.push(`unexpected outbound link in src/: ${h}`);
+ok.push(`network hosts limited to: ${[...fetched].join(", ")}`);
+ok.push(`outbound links limited to: ${[...linked].join(", ")}`);
 
 // ---- 8. no unreachable modules
 const entries = ["src/sidepanel/sidepanel.js", "src/background.js", "src/report/report.js"].map((p) => join(root, p));

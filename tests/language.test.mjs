@@ -20,7 +20,14 @@ const HAS_LATIN_WORDS = /\b[A-Za-z]{3,}\b/;
 const PLACEHOLDERS = /\{\w+\}/g;
 // Names that keep their own spelling in any language.
 const PROPER_NOUNS = /MarketFit|OpenAI|Anthropic|DeepSeek|Claude|Sonnet|Opus|GPT-5 mini|GPT|PyTorch|Kubernetes|Greenhouse|Lever|Workday|API|Key|PDF|HTTP|JSON|JD|MB|AI|CV/g;
-const prose = (value) => String(value).replace(PLACEHOLDERS, "").replace(PROPER_NOUNS, "");
+// Labels the reader will literally see on a third-party console, which renders in
+// English whatever language this panel is in. Translating "Settings" would send a
+// Chinese reader looking for a button that does not exist under that name.
+const CONSOLE_LABELS = /API keys|Settings/g;
+// Literal key prefixes. "sk-ant-" reads as the word "ant" once hyphens are treated
+// as word boundaries, which is a quirk of the check rather than an English leak.
+const KEY_PREFIXES = /sk-ant-|sk-/g;
+const prose = (value) => String(value).replace(PLACEHOLDERS, "").replace(CONSOLE_LABELS, "").replace(KEY_PREFIXES, "").replace(PROPER_NOUNS, "");
 
 test("every Chinese string is Chinese, apart from names that have no translation", () => {
   const leaks = Object.entries(MESSAGES.zh)

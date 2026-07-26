@@ -2,7 +2,7 @@ import { createManualJob, extractJob, hasUsableJobContent, validateCapturedJob }
 import { captureActiveTab, isSameJobPage, requestOptionalSiteAccess, siteOriginForPermission } from "../extraction/tabCapture.js";
 import { createDirectApiClient } from "../ai/directApiClient.js";
 import { buildRemoteTransmissionPreview } from "../privacy/redaction.js";
-import { API_PROVIDERS, MODELS, modelsForProvider } from "../ai/models.js";
+import { API_PROVIDERS, MODELS, PROVIDER_CONSOLES, modelsForProvider } from "../ai/models.js";
 import { configurePdfWorker, extractResumePdf } from "../profile/pdfResume.js";
 import { applyTranslations, errorText, format, t } from "../ui/i18n.js";
 import { escapeHtml, renderAnalysisHtml } from "../ui/analysisView.js";
@@ -16,7 +16,7 @@ const fields = {
   interfaceLanguage: byId("interfaceLanguage"), cvPdf: byId("cvPdf"), cvFileStatus: byId("cvFileStatus"), market: byId("market"), workAuthorization: byId("workAuthorization"),
   status: byId("status"), result: byId("result"), currentJobSummary: byId("currentJobSummary"), currentJobMeta: byId("currentJobMeta"), currentJobQuality: byId("currentJobQuality"), temporaryNotice: byId("temporaryNotice"),
   redactionPreview: byId("redactionPreview"), agentProvider: byId("agentProvider"), apiKey: byId("apiKey"), apiProviderMode: byId("apiProviderMode"),
-  apiModel: byId("apiModel"), accessRetryRow: byId("accessRetryRow"), jobEditorPanel: byId("jobEditorPanel"), jobTextEditor: byId("jobTextEditor"),
+  apiModel: byId("apiModel"), apiKeyHelp: byId("apiKeyHelp"), apiKeyWarning: byId("apiKeyWarning"), accessRetryRow: byId("accessRetryRow"), jobEditorPanel: byId("jobEditorPanel"), jobTextEditor: byId("jobTextEditor"),
   marketHelp: byId("marketHelp"), workAuthorizationHelp: byId("workAuthorizationHelp"), jobTitleInput: byId("jobTitleInput"), jobCompanyInput: byId("jobCompanyInput"), jobLocationInput: byId("jobLocationInput"), appVersion: byId("appVersion"),
   reportRow: byId("reportRow"), openReport: byId("openReport"), runProgress: byId("runProgress")
 };
@@ -42,6 +42,7 @@ fields.cvPdf.addEventListener("change", loadResumePdf);
 fields.interfaceLanguage.addEventListener("change", changeLanguage);
 fields.market.addEventListener("change", renderProfileHelp);
 fields.workAuthorization.addEventListener("change", renderProfileHelp);
+fields.apiKey.addEventListener("input", renderApiKeyWarning);
 
 // Chrome keeps running an unpacked extension's previous code until it is reloaded,
 // so the loaded build has to be visible to tell "not fixed" from "not reloaded".
@@ -388,9 +389,12 @@ function updateAgentProviderUi() {
   if (!apiProvider) {
     fields.apiKey.value = "";
     fields.apiModel.replaceChildren();
+    fields.apiKeyWarning.hidden = true;
     return;
   }
   updateApiModelOptions(provider);
+  renderApiKeyHelp(provider);
+  renderApiKeyWarning();
 }
 
 /**
@@ -420,6 +424,43 @@ async function grantProviderAccess() {
   } catch (error) {
     setStatus(errorText(locale, error, "directAccessDenied"));
   }
+}
+
+/**
+ * How to get a key for the provider just chosen.
+ *
+ * Built from DOM nodes rather than innerHTML: this is the one place in the panel
+ * that renders a link, and a link assembled by string concatenation is the shape
+ * that turns into an injection bug later even when today's inputs are constants.
+ */
+function renderApiKeyHelp(provider) {
+  const console = PROVIDER_CONSOLES[provider];
+  const helpKey = `apiKeyHelp${provider.replace(/(^|-)([a-z])/g, (_, __, letter) => letter.toUpperCase())}`;
+  fields.apiKeyHelp.replaceChildren();
+  fields.apiKeyHelp.append(`${t(locale, helpKey)} ${t(locale, "apiKeyOnceOnly")} ${t(locale, "apiKeyWhere")} `);
+  if (!console) return;
+  const link = document.createElement("a");
+  link.href = console.url;
+  link.textContent = new URL(console.url).host;
+  link.target = "_blank";
+  // Keeps the opened console from reaching back into this panel via window.opener.
+  link.rel = "noopener noreferrer";
+  fields.apiKeyHelp.append(link);
+}
+
+/**
+ * Advisory only. An Anthropic key pasted under OpenAI fails with a bare 401 that
+ * says nothing about which of the two things is wrong, and the prefixes make that
+ * one case unambiguous. OpenAI and DeepSeek keys share a prefix, so no claim is
+ * made about those — a warning that fires on a correct key would be worse than none.
+ */
+function renderApiKeyWarning() {
+  const provider = fields.agentProvider.value;
+  const value = fields.apiKey.value.trim();
+  const anthropicPrefix = PROVIDER_CONSOLES["anthropic-api"].keyPrefix;
+  const mismatched = value.startsWith(anthropicPrefix) && API_PROVIDERS.includes(provider) && provider !== "anthropic-api";
+  fields.apiKeyWarning.textContent = mismatched ? t(locale, "apiKeyMismatch") : "";
+  fields.apiKeyWarning.hidden = !mismatched;
 }
 
 function updateApiModelOptions(provider) {
