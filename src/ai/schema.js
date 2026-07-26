@@ -13,6 +13,13 @@ const CONDITION_TYPES = new Set(["sponsorship", "work_authorization", "citizensh
  * themselves without this.
  */
 const CONDITION_STANCES = new Set(["requires_existing", "offers_support", "unclear"]);
+/**
+ * Who holds the answer to an open question. The field used to be called
+ * uncertainties with no audience, so the model filled it with gaps in the CV while
+ * the panel titled it "Ask the employer" — advice the reader could not act on,
+ * because an employer cannot tell you what you did at your last job.
+ */
+const ANSWERED_BY = new Set(["employer", "you"]);
 const REQUIREMENT_LEVELS = new Set(["required", "preferred", "unclear"]);
 const EVIDENCE_SOURCES = new Set(["resume", "job"]);
 const GAP_SEVERITIES = new Set(["material", "moderate", "unknown"]);
@@ -252,9 +259,10 @@ export const AGENT_EVIDENCE_SCHEMA = Object.freeze({
       items: {
         type: "object",
         additionalProperties: false,
-        required: ["type", "message", "evidence"],
+        required: ["type", "answeredBy", "message", "evidence"],
         properties: {
           type: { type: "string", minLength: 1, maxLength: FIELD_LIMITS.shortLabel },
+          answeredBy: { type: "string", enum: ["employer", "you"] },
           message: { type: "string", minLength: 1, maxLength: FIELD_LIMITS.prose },
           evidence: { type: "array", minItems: 1, maxItems: 4, items: EVIDENCE_SCHEMA }
         }
@@ -417,6 +425,9 @@ export function parseAgentEvidence(value, request) {
       const uncertainty = object(item, "Each uncertainty must be an object.");
       return {
         type: outputText(uncertainty.type, "uncertainty.type", FIELD_LIMITS.shortLabel),
+        // Defaults to the employer: a question wrongly filed there is merely one you
+        // need not send, while a CV gap hidden under "ask them" is never acted on.
+        answeredBy: ANSWERED_BY.has(uncertainty.answeredBy) ? uncertainty.answeredBy : "employer",
         message: outputText(uncertainty.message, "uncertainty.message", FIELD_LIMITS.prose),
         evidence: parseEvidenceList(uncertainty.evidence, request, "uncertainty.evidence", RESULT_LIMITS.evidencePerItem)
       };

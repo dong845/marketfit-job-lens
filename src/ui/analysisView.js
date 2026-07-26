@@ -40,7 +40,11 @@ export function renderAnalysisHtml(evidence, locale, candidate = {}) {
     ]),
     renderGroup(t(locale, "sectionVerify"), [
       renderCards(t(locale, "aiRisks"), evidence.risks, (item) => titleAndSummary(item.title, item.summary, severityTag(item.severity, locale)), locale, "sub"),
-      renderCards(t(locale, "employerQuestions"), evidence.uncertainties, (item) => titleAndSummary(item.type, item.message), locale, "sub")
+      // Split by who can answer. One heading over both meant CV blind spots sat
+      // under "ask the employer", where a reader either acts on them wrongly or,
+      // more likely, skips the most actionable advice in the analysis.
+      renderCards(t(locale, "employerQuestions"), openQuestions(evidence.uncertainties, "employer"), (item) => titleAndSummary(item.type, item.message), locale, "sub"),
+      renderCards(t(locale, "cvBlindSpots"), openQuestions(evidence.uncertainties, "you"), (item) => titleAndSummary(item.type, item.message), locale, "sub")
     ]),
     `<p class="analysis-note">${escapeHtml(t(locale, "aiSupplement"))}</p>`
   ].filter(Boolean).join("");
@@ -261,6 +265,11 @@ function requirementMeta(item, locale) {
 function matchTone(item) {
   if (item.match === "no_evidence" && item.level === "required") return "warn";
   return MATCH_TONE[item.match] || "muted";
+}
+
+/** Items whose answer sits with one side or the other; absent audience reads as employer. */
+function openQuestions(items, audience) {
+  return (items || []).filter((item) => (item.answeredBy || "employer") === audience);
 }
 
 function renderCards(title, items, renderItem, locale, variant = "") {

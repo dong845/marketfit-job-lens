@@ -208,3 +208,42 @@ test("a gap with no honest pre-application fix says so instead of inventing one"
   assert.match(html, /Cannot be closed before applying:/);
   assert.equal(html.includes("How to close it:"), false);
 });
+
+test("open questions are split by who can answer them, under headings that say so", () => {
+  // The field was named uncertainties, the system policy asked for uncertainty, and
+  // the panel titled it "Ask the employer". Three sources disagreed and the model
+  // followed the name, so the section filled up with gaps in the reader's own CV —
+  // filed under a heading telling them to send it to a hiring manager, who cannot
+  // possibly know what they built at a previous job.
+  const evidence = evidenceFixture({
+    uncertainties: [
+      { type: "Team size", answeredBy: "employer", message: "How many engineers are on the reconstruction team today?", evidence: [] },
+      { type: "Scope of the Huawei role", answeredBy: "you", message: "Say what you built there and whether it shipped; 11 months with no detail reads as a blank.", evidence: [] },
+      { type: "On-call", message: "Is there an on-call rotation for this role?", evidence: [] }
+    ]
+  });
+  const html = renderAnalysisHtml(evidence, "en");
+  assert.match(html, /What to ask them/);
+  assert.match(html, /What your CV leaves unanswered/);
+  // Each item sits under exactly one heading, and on the correct side of the split.
+  const askIndex = html.indexOf("What to ask them");
+  const cvIndex = html.indexOf("What your CV leaves unanswered");
+  assert.ok(html.indexOf("How many engineers") > askIndex && html.indexOf("How many engineers") < cvIndex);
+  assert.ok(html.indexOf("11 months with no detail") > cvIndex);
+  // An item with no audience is a question for them, not silently dropped.
+  assert.ok(html.indexOf("on-call rotation") > askIndex && html.indexOf("on-call rotation") < cvIndex);
+
+  // Every heading states its direction, because two of these were read backwards.
+  const zh = renderAnalysisHtml(evidence, "zh");
+  assert.match(zh, /他们会问你什么/);
+  assert.match(zh, /你该问他们什么/);
+  assert.match(zh, /你的简历没说清楚的地方/);
+});
+
+test("a section with nothing on its side of the split is omitted", () => {
+  const onlyEmployer = renderAnalysisHtml(evidenceFixture({
+    uncertainties: [{ type: "Team size", answeredBy: "employer", message: "How big is the team?", evidence: [] }]
+  }), "en");
+  assert.match(onlyEmployer, /What to ask them/);
+  assert.equal(onlyEmployer.includes("What your CV leaves unanswered"), false);
+});
