@@ -58,6 +58,22 @@ const EVIDENCE = {
       { title: "No regulatory exposure", severity: "material", closable: "not_before_apply", summary: "This one cannot be closed this week.", howToClose: "Say so plainly in the cover letter, and name the verification or documentation work you did do around clinical data.", evidence: cite }
     ],
     risks: [{ title: "How far the regulatory work reaches", severity: "unknown", summary: "The posting mentions submissions once and never says whether this role writes them or supports them.", evidence: cite }],
+    profileRisks: [{
+      title: "Nothing in the CV is dated",
+      severity: "moderate",
+      summary: "A screener cannot tell whether the C++ port was last year or five years ago, so every skill on it reads as unverifiable even where it is current.",
+      howToAddress: "Put a year range on each project. This is the cheapest thing on the list and it changes how the whole CV reads.",
+      evidence: cite
+    }],
+    screening: {
+      titleMatch: { direction: "adjacent", note: "The posting hires a Reconstruction Engineer; your CV says Research Engineer." },
+      terms: [
+        { term: "IEC 62304", presence: "absent", cvWording: "", evidence: cite },
+        { term: "production C++", presence: "variant", cvWording: "ported the solver to C++", evidence: cite },
+        { term: "Kubernetes", presence: "absent", cvWording: "", evidence: cite },
+        { term: "PyTorch", presence: "verbatim", cvWording: "", evidence: cite }
+      ]
+    },
     resumeTailoring: [{ target: "C++ / CUDA", recommendation: "Promote it out of the skills list into an experience bullet, using the posting's phrase 'production solver'.", evidence: cite }],
     interviewFocus: [{ question: "How did you validate the 28% reduction against clinical ground truth?", rationale: "It is the strongest line in the CV, so it will be probed first.", evidence: cite }],
     uncertainties: [
@@ -101,8 +117,25 @@ EVIDENCE.zh.uncertainties[0] = { type: "团队规模", answeredBy: "employer", m
 EVIDENCE.zh.uncertainties[1] = { type: "C++ 移植的范围", answeredBy: "you", message: "写清那次移植是否跑在临床环境里、你优化了什么、有没有测试。现在读起来像个副业。", evidence: cite };
 const zhAct = ["先确认你在荷兰无需担保即可工作，再决定要不要花这个晚上。", "把 C++/CUDA 那行改写成带加速倍数和使用方的经历条目。", "给重建项目补上时间范围和团队规模。", "投递一周后，通过团队的 LinkedIn 找一次引荐。"];
 EVIDENCE.zh.suggestedActions.forEach((a, i) => { a.action = zhAct[i]; });
+EVIDENCE.zh.profileRisks[0] = {
+  title: "简历里没有任何时间信息",
+  severity: "moderate",
+  summary: "筛简历的人无法判断那次 C++ 移植是去年还是五年前，于是简历上每一项技能都变得无从核实，哪怕它其实是当前在用的。",
+  howToAddress: "给每个项目加上起止年份。这是这份清单里成本最低的一件事，却会改变整份简历的读感。",
+  evidence: cite
+};
+EVIDENCE.zh.screening.titleMatch = { direction: "adjacent", note: "岗位招的是重建工程师，你简历上的头衔是研究工程师。" };
+EVIDENCE.zh.screening.terms[1].cvWording = "把求解器移植到 C++";
+
+// Only when asked: the store images show the product working, and a caveat is a
+// property of one run's inputs rather than of the panel. Kept switchable so the same
+// renderer can also produce a picture of what a degraded capture looks like.
+const QUALITY = process.env.QUALITY ? { method: "semantic_selector", removedLines: 28, resumeTruncated: false } : null;
 
 const css = readFileSync(`${ROOT}/src/sidepanel/sidepanel.css`, "utf8");
+// Read, not typed: the badge was pinned at a version the extension had already left
+// behind, which is the exact drift this whole script exists to prevent.
+const VERSION = JSON.parse(readFileSync(`${ROOT}/manifest.json`, "utf8")).version;
 const CHROME = { en: ["MarketFit", "Ready", "Senior MRI Reconstruction Engineer · Example Health · Leiden"], zh: ["MarketFit", "就绪", "高级 MRI 重建工程师 · Example Health · 莱顿"] };
 
 for (const locale of ["en", "zh"]) {
@@ -137,9 +170,9 @@ h1.app{font-size:22px}.version{color:var(--muted);font-size:11px;font-weight:600
     <p class="b">We build clinical imaging software used in 40 hospitals across Europe. International candidates are welcome to apply.</p>
   </div>
   <div class="panel-frame">
-    ${process.env.SCROLL ? "" : `<div class="topbar"><div><h1 class="app">${title} <span class="version">v0.7.20</span></h1><p style="color:var(--muted);font-size:12px">${status}</p></div></div>
+    ${process.env.SCROLL ? "" : `<div class="topbar"><div><h1 class="app">${title} <span class="version">v${VERSION}</span></h1><p style="color:var(--muted);font-size:12px">${status}</p></div></div>
     <div class="job-summary"><p class="meta">${job}</p></div>`}
-    <section class="result" style="margin-top:${process.env.SCROLL || 0}px;overflow:hidden">${renderAnalysisHtml(EVIDENCE[locale], locale)}</section>
+    <section class="result" style="margin-top:${process.env.SCROLL || 0}px;overflow:hidden">${renderAnalysisHtml(EVIDENCE[locale], locale, {}, QUALITY)}</section>
   </div>
 </div>`);
 }
