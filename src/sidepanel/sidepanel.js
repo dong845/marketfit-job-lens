@@ -146,12 +146,7 @@ async function captureCurrentJob({ announceFailure = true } = {}) {
     try {
       currentJob = extractJob(capture.snapshot);
     } catch {
-      currentJob = null;
-      pendingSiteOrigin = siteOriginForPermission(capture.tab.url);
-      renderCurrentJobSummary();
-      setStatus(t(locale, "captureBlocked"));
-      renderCaptureFailure();
-      return null;
+      return announceCaptureStopped(capture.tab.url);
     }
     pendingSiteOrigin = "";
     renderCurrentJobSummary();
@@ -167,12 +162,46 @@ async function captureCurrentJob({ announceFailure = true } = {}) {
     }
     return currentJob;
   }
+  return announceCaptureStopped(capture.tab.url);
+}
+
+/**
+ * Says why the page was not read — and the usual answer is not "it failed".
+ *
+ * Chrome grants activeTab per invocation, so the first analysis on any site routinely
+ * has no access to it yet. That is the designed path, not a fault: nothing is broken,
+ * nothing was tried and refused, and one click settles it permanently for that site.
+ * Reporting it as a read failure described the normal first run as an error, which
+ * left people re-clicking Analyze or assuming the extension does not work on the page
+ * they are looking at.
+ *
+ * A genuine failure — a login wall, a single-page app that renders nothing readable,
+ * a page whose origin cannot be requested at all — keeps the old wording, because
+ * there it is true.
+ */
+async function announceCaptureStopped(url) {
   currentJob = null;
-  pendingSiteOrigin = siteOriginForPermission(capture.tab.url);
+  pendingSiteOrigin = siteOriginForPermission(url);
   renderCurrentJobSummary();
-  setStatus(t(locale, "captureBlocked"));
-  renderCaptureFailure();
+  const needsAccess = Boolean(pendingSiteOrigin) && !await hasStandingSiteAccess(pendingSiteOrigin);
+  setStatus(t(locale, needsAccess ? "accessNeeded" : "captureBlocked"));
+  renderCaptureFailure(needsAccess);
   return null;
+}
+
+/**
+ * Whether this site has already been allowed, as opposed to never having been asked.
+ *
+ * Only chrome.permissions can answer it, and a profile that refuses the query must not
+ * turn into a claim either way — an unknown answer falls back to the honest failure
+ * wording rather than promising the reader a button will fix it.
+ */
+async function hasStandingSiteAccess(origin) {
+  try {
+    return await chrome.permissions.contains({ origins: [origin] });
+  } catch {
+    return true;
+  }
 }
 
 async function resolveJobForAnalysis() {
@@ -308,9 +337,21 @@ function renderActionMessage(message) {
   fields.result.innerHTML = `<div class="empty action-message">${escapeHtml(message)}</div>`;
 }
 
-function renderCaptureFailure() {
-  const grant = pendingSiteOrigin ? `<button id="grantSiteAccess" class="secondary" type="button">${escapeHtml(t(locale, "grantSiteAccess"))}</button>` : "";
-  fields.result.innerHTML = `<div class="empty action-message"><p>${escapeHtml(t(locale, "captureBlocked"))}</p><div class="control-row">${grant}<button id="manualJobFallback" class="secondary" type="button">${escapeHtml(t(locale, "editJob"))}</button></div></div>`;
+/**
+ * Two states, not one. Permission-not-yet-granted leads with what to click and says
+ * outright that nothing has gone wrong; a real failure keeps the failure wording.
+ *
+ * The button styling carries the same information: on the permission path allowing the
+ * site is the one thing that works, so it is the primary control and pasting is the
+ * escape hatch. On a genuine failure neither is guaranteed, so both stay secondary.
+ */
+function renderCaptureFailure(needsAccess = false) {
+  const grant = pendingSiteOrigin
+    ? `<button id="grantSiteAccess" class="${needsAccess ? "primary" : "secondary"}" type="button">${escapeHtml(t(locale, "grantSiteAccess"))}</button>`
+    : "";
+  const heading = t(locale, needsAccess ? "accessNeeded" : "captureBlocked");
+  const why = needsAccess ? `<p class="meta">${escapeHtml(t(locale, "accessNeededWhy"))}</p>` : "";
+  fields.result.innerHTML = `<div class="empty action-message"><p>${escapeHtml(heading)}</p>${why}<div class="control-row">${grant}<button id="manualJobFallback" class="secondary" type="button">${escapeHtml(t(locale, "editJob"))}</button></div></div>`;
   byId("grantSiteAccess")?.addEventListener("click", grantSiteAccess);
   byId("manualJobFallback")?.addEventListener("click", openJobEditor);
 }

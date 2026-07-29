@@ -19,7 +19,10 @@ const HAS_LATIN_WORDS = /\b[A-Za-z]{3,}\b/;
 // {placeholder} names are template slots, not prose the reader ever sees.
 const PLACEHOLDERS = /\{\w+\}/g;
 // Names that keep their own spelling in any language.
-const PROPER_NOUNS = /MarketFit|OpenAI|Anthropic|DeepSeek V4 Flash|DeepSeek V4 Pro|DeepSeek|Claude|Sonnet|Opus|GPT-5 mini|GPT|PyTorch|Kubernetes|Greenhouse|Lever|Workday|API|Key|PDF|HTTP|JSON|JD|MB|AI|CV/g;
+// Chrome is the browser's own name and is what Chinese users call it too; the
+// permission wording has to name it, because the prompt the reader will see comes
+// from Chrome rather than from this panel.
+const PROPER_NOUNS = /MarketFit|OpenAI|Anthropic|DeepSeek V4 Flash|DeepSeek V4 Pro|DeepSeek|Claude|Sonnet|Opus|GPT-5 mini|GPT|PyTorch|Kubernetes|Greenhouse|Lever|Workday|Chrome|API|Key|PDF|HTTP|JSON|JD|MB|AI|CV/g;
 // Labels the reader will literally see on a third-party console, which renders in
 // English whatever language this panel is in. Translating "Settings" would send a
 // Chinese reader looking for a button that does not exist under that name.
@@ -134,4 +137,19 @@ test("optionKey builds the same name the panel asks for", () => {
   assert.equal(optionKey("authHelp", "unknown"), "authHelpUnknown");
   assert.equal(optionKey("method", "schema_org_jsonld"), "methodSchemaOrgJsonld");
   assert.equal(optionKey("apiKeyHelp", "openai_api"), "apiKeyHelpOpenaiApi");
+});
+
+test("the permission prompt says outright that nothing is broken", () => {
+  // The whole defect was tone: a normal first run described as a failure. If these
+  // sentences drift back into failure language the fix is undone.
+  for (const locale of ["en", "zh"]) {
+    assert.ok(MESSAGES[locale].accessNeeded, `${locale} needs accessNeeded`);
+    assert.ok(MESSAGES[locale].accessNeededWhy, `${locale} needs accessNeededWhy`);
+  }
+  assert.match(MESSAGES.en.accessNeededWhy, /Nothing has gone wrong/);
+  assert.match(MESSAGES.zh.accessNeededWhy, /这不是出错/);
+  // It must not reuse the failure wording it exists to replace.
+  assert.notEqual(MESSAGES.zh.accessNeeded, MESSAGES.zh.captureBlocked);
+  assert.equal(/失败|无法读取/.test(MESSAGES.zh.accessNeeded), false, "a permission request is not a failure");
+  assert.equal(/cannot|failed/i.test(MESSAGES.en.accessNeeded), false, "a permission request is not a failure");
 });

@@ -217,3 +217,29 @@ test("the profile asks only for what changes the analysis", () => {
   // What remains must still reach the request.
   assert.match(script, /candidate: \{ workAuthorization: fields\.workAuthorization\.value \}/);
 });
+
+/**
+ * A first read on a new site has no activeTab grant yet. That is the designed path,
+ * and it was reported with the same sentence as a login wall — so the normal first run
+ * read as a malfunction and people re-clicked Analyze or concluded the extension does
+ * not work on the page they were looking at.
+ */
+test("a site that has not been allowed yet is not called a read failure", () => {
+  // The two states must stay distinguishable at the source: one asks permissions
+  // whether the origin is already held, the other does not get to guess.
+  assert.match(script, /async function hasStandingSiteAccess/);
+  assert.match(script, /chrome\.permissions\.contains\(\{ origins: \[origin\] \}\)/);
+  assert.match(script, /needsAccess \? "accessNeeded" : "captureBlocked"/);
+  // Allowing the site is the one thing that works on that path, so it leads.
+  assert.match(script, /needsAccess \? "primary" : "secondary"/);
+  // An unresolvable permissions query must fall back to the failure wording rather
+  // than promise a button will fix it.
+  assert.match(script, /\} catch \{\n {4}return true;\n {2}\}/);
+});
+
+test("both capture-stopped paths go through the one place that decides which it was", () => {
+  // There were two copies of this reporting, and only one of them could be corrected
+  // without the other silently keeping the old sentence.
+  assert.equal((script.match(/renderCaptureFailure\(/g) || []).length, 2, "one definition, one call site");
+  assert.equal((script.match(/announceCaptureStopped\(capture\.tab\.url\)/g) || []).length, 2);
+});
