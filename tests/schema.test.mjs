@@ -262,7 +262,15 @@ test("CV conventions come from the posting's location, not from a selector", asy
   // convention. The market that decides how a CV should read is the employer's, and
   // the posting always states it — so there was nothing to ask the user for.
   const { buildAnalyzePrompt } = await import("../src/ai/prompts.js");
-  const prompt = buildAnalyzePrompt(apiRequest());
+  // Built with a location, because that is the input the rule reads. The instruction
+  // is only sent when there is one — its own closing clause used to tell the model to
+  // omit the item without a location, which is a structural fact the request can
+  // settle rather than 678 characters of asking.
+  const prompt = buildAnalyzePrompt(parseTaskRequest({
+    requestId: "conv-1", taskType: "analyze_job", provider: "openai-api", privacyMode: "provider_cloud",
+    credential: { type: "session_api_key", apiKey: "session-test-api-key-123" },
+    input: { resumeText: "Built Python services.", job: { title: "E", location: "Leiden, NL", description: "Python required." }, candidate: {} }
+  }));
   assert.match(prompt, /read it from job\.location/);
   assert.match(prompt, /exactly one resumeTailoring item about convention/);
   // Omitting beats inventing: a convention that does not differ is not advice.
@@ -293,4 +301,190 @@ test("the prose rules name the constructions to avoid, not just a tone", async (
   assert.match(prompt, /Do not hedge in stacks/);
   assert.match(prompt, /Do not nominalise a verb into a noun phrase/);
   assert.match(prompt, /Do not restate the question before answering/);
+});
+
+/**
+ * Input quality reaches the model, because absence is the failure mode: a requirement
+ * the filter removed and one the posting never had are the same silence, and the
+ * second gets reported as a finding.
+ */
+test("source quality is normalised rather than trusted or refused", () => {
+  const request = parseTaskRequest({
+    requestId: "q-1", taskType: "analyze_job", provider: "openai-api", privacyMode: "provider_cloud",
+    credential: { type: "session_api_key", apiKey: "session-test-api-key-123" },
+    input: {
+      resumeText: "Built Python services.",
+      job: { title: "Engineer", description: "Python required." },
+      candidate: {},
+      sourceQuality: { method: "manual_paste", removedLines: "17", resumeTruncated: 1 }
+    }
+  });
+  assert.deepEqual(request.input.sourceQuality, { method: "manual_paste", removedLines: 17, resumeTruncated: true });
+});
+
+test("a nonsense or absent count degrades to nothing to report, never to a failed run", () => {
+  const build = (sourceQuality) => parseTaskRequest({
+    requestId: "q-2", taskType: "analyze_job", provider: "openai-api", privacyMode: "provider_cloud",
+    credential: { type: "session_api_key", apiKey: "session-test-api-key-123" },
+    input: { resumeText: "Built Python services.", job: { title: "E", description: "Python required." }, candidate: {}, sourceQuality }
+  }).input.sourceQuality;
+  // The user has already paid by the time this runs; a bad count must not cost them the call.
+  assert.equal(build({ removedLines: -4 }).removedLines, 0);
+  assert.equal(build({ removedLines: NaN }).removedLines, 0);
+  assert.equal(build({ removedLines: 1e9 }).removedLines, 100000);
+  assert.deepEqual(build(undefined), { method: "", removedLines: 0, resumeTruncated: false });
+});
+
+test("the prompt carries a caveat only where one exists", async () => {
+  const { buildAnalyzePrompt } = await import("../src/ai/prompts.js");
+  const promptFor = (sourceQuality) => buildAnalyzePrompt(parseTaskRequest({
+    requestId: "q-3", taskType: "analyze_job", provider: "openai-api", privacyMode: "provider_cloud",
+    credential: { type: "session_api_key", apiKey: "session-test-api-key-123" },
+    input: { resumeText: "Built Python services.", job: { title: "E", description: "Python required." }, candidate: {}, sourceQuality }
+  }));
+
+  // Each caveat exists to stop one silence being reported as a finding.
+  assert.match(promptFor({ resumeTruncated: true }), /cut at a length limit/);
+  assert.match(promptFor({ removedLines: 26 }), /26 lines of page furniture/);
+  assert.match(promptFor({ method: "manual_paste" }), /pasted by the candidate/);
+
+  // And silence when the inputs arrived whole: a caveat on every run teaches the
+  // reader to skip caveats, and the prompt already forbids hedging in stacks.
+  const clean = promptFor({ method: "schema_org_jsonld", removedLines: 3, resumeTruncated: false });
+  assert.equal(/cut at a length limit|page furniture were removed|pasted by the candidate/.test(clean), false);
+  assert.equal(/cut at a length limit/.test(promptFor(undefined)), false, "an older caller sending nothing must still build a prompt");
+});
+
+test("CV red flags are parsed, capped, and never fatal", () => {
+  const risk = (title) => ({ title, severity: "moderate", summary: "s", howToAddress: "Say the true thing.", evidence: [{ ref: "CV-001" }] });
+  const parse = (profileRisks) => parseAgentEvidence({ ...validEvidence(), profileRisks }, apiRequest());
+
+  const parsed = parse([risk("Gap"), risk("Tenure")]);
+  assert.equal(parsed.profileRisks.length, 2);
+  assert.equal(parsed.profileRisks[0].howToAddress, "Say the true thing.");
+  assert.equal(parsed.profileRisks[0].evidence[0].source, "resume");
+
+  assert.equal(parse(Array.from({ length: 12 }, (_, i) => risk(`R${i}`))).profileRisks.length, RESULT_LIMITS.profileRisks);
+
+  // Additive, never fatal — the list shipped after four selectable models did, so a
+  // malformed entry must cost the entry rather than the paid analysis around it.
+  const survived = parse([{ title: "no severity", summary: "s", evidence: [] }, risk("Real")]);
+  assert.deepEqual(survived.profileRisks.map((item) => item.title), ["Real"]);
+  assert.equal(survived.requirements.length > 0, true, "the rest of the analysis must survive");
+  assert.deepEqual(parse(undefined).profileRisks, [], "a model that omits the field has still answered");
+});
+
+test("the prompt separates a CV red flag from the two lists it is confused with", async () => {
+  const { buildAnalyzePrompt } = await import("../src/ai/prompts.js");
+  const prompt = buildAnalyzePrompt(apiRequest());
+  assert.match(prompt, /does not compare the CV against this posting/);
+  // The fence that matters most: this is the list most likely to drift into inferring
+  // things about a person from their name, age or where they studied.
+  assert.match(prompt, /Never infer a profile risk from a name, a nationality/);
+  assert.match(prompt, /An empty profileRisks list is a correct answer/);
+});
+
+test("wording coverage is parsed independently of the capability judgement", () => {
+  const parsed = parseAgentEvidence({
+    ...validEvidence(),
+    screening: {
+      titleMatch: { direction: "distant", note: "Engineer versus Analyst." },
+      terms: [
+        { term: "Python", presence: "verbatim", cvWording: "", evidence: [{ ref: "CV-001" }] },
+        { term: "Kubernetes", presence: "absent", cvWording: "", evidence: [{ ref: "JD-001" }] },
+        { term: "bad", presence: "not-a-state", cvWording: "", evidence: [] }
+      ]
+    }
+  }, apiRequest());
+  assert.equal(parsed.screening.titleMatch.direction, "distant");
+  // The unparseable term goes; the ones around it stay.
+  assert.deepEqual(parsed.screening.terms.map((item) => item.term), ["Python", "Kubernetes"]);
+  // A requirement scored strong beside a term marked absent is the pairing this
+  // section exists to expose, so nothing may reconcile the two.
+  assert.equal(parsed.requirements[0].match, "strong");
+});
+
+test("half a screening section is better than none, and none is not an error", () => {
+  const parse = (screening) => parseAgentEvidence({ ...validEvidence(), screening }, apiRequest()).screening;
+  assert.equal(parse({ titleMatch: { direction: "same", note: "Identical." }, terms: [] }).terms.length, 0);
+  assert.equal(parse({ titleMatch: { direction: "same", note: "Identical." }, terms: [] }).titleMatch.direction, "same");
+  assert.equal(parse({ titleMatch: { direction: "nonsense" }, terms: [{ term: "Go", presence: "absent", cvWording: "", evidence: [] }] }).titleMatch, null);
+  assert.equal(parse(undefined), null);
+  assert.equal(parse({ titleMatch: null, terms: [] }), null);
+  assert.equal(parse({ terms: Array.from({ length: 30 }, () => ({ term: "T", presence: "absent", cvWording: "", evidence: [] })) }).terms.length, RESULT_LIMITS.screeningTerms);
+});
+
+/**
+ * Every rule the prompt is responsible for, pinned by a phrase that only it carries.
+ *
+ * A slimming pass shrinks a file and reports a smaller number, and the number is not
+ * evidence: bytes can move, merge or vanish and the diff is too large to review by
+ * eye. This is the check that a rule which stopped being sent fails a test instead of
+ * quietly changing what the analysis says.
+ */
+const ALWAYS_SENT = [
+  ["list placement", /which list it CANNOT belong to/],
+  ["anti-generic test", /equally true for a different candidate/],
+  ["no hedge stacks", /Do not hedge in stacks/],
+  ["knockout definition", /A knockout is a condition a recruiter can check without judgement/],
+  ["required is not a knockout", /do NOT by themselves make a skill a knockout/],
+  ["verdict from screening", /Set recommendation.verdict from screening roles/],
+  ["effort from gaps", /Set recommendation.effort from the gaps you just listed/],
+  ["quick is expected", /quick is the expected answer/],
+  ["level comparison", /Set overview.levelComparison/],
+  ["recency", /set recency from the CV's own dates/],
+  ["gap closability", /Every gap needs closable and howToClose/],
+  ["tailoring honesty", /must never: add a skill or tool the CV does not evidence/],
+  ["vocabulary alignment", /add a tailoring item naming both wordings/],
+  ["profile risk definition", /does not compare the CV against this posting/],
+  ["profile risk trait fence", /Never infer a profile risk from a name, a nationality/],
+  ["profile risk may be empty", /An empty profileRisks list is a correct answer/],
+  ["screening vs requirements", /the two are meant to disagree/],
+  ["absent is about the document", /absent is a statement about the document/],
+  ["title distance", /Set screening.titleMatch/],
+  ["conditions reported", /report the employer's own statement in statedConditions/],
+  ["condition stance", /Set each stated condition's stance/],
+  ["condition typing", /Type each stated condition by what the sentence is about/],
+  ["condition question", /the one question whose answer settles it/],
+  ["no odds", /never state odds or probabilities/],
+  ["who answers", /Every open question must say who holds the answer/],
+  ["thin CV entries are yours", /Never file a thin CV entry under employer/],
+  ["one to-do list", /suggestedActions is the single authoritative to-do list/],
+  ["screening feeds the plan", /a screening term the CV states in other words must appear there exactly once/],
+  ["block IDs stay out of prose", /Block IDs belong in the evidence arrays and nowhere else/],
+  ["caps", /Prefer fewer, well-evidenced items over padding/]
+];
+
+test("no rule leaves the prompt, whatever the inputs", async () => {
+  const { buildAnalyzePrompt } = await import("../src/ai/prompts.js");
+  // The sparsest possible request: no declared status, no location, whole inputs.
+  const prompt = buildAnalyzePrompt(apiRequest());
+  for (const [name, pattern] of ALWAYS_SENT) {
+    assert.match(prompt, pattern, `the ${name} rule is no longer sent`);
+  }
+});
+
+test("the two conditional rules travel exactly when they apply", async () => {
+  const { buildAnalyzePrompt } = await import("../src/ai/prompts.js");
+  const build = (candidate, location) => buildAnalyzePrompt(parseTaskRequest({
+    requestId: "c-1", taskType: "analyze_job", provider: "openai-api", privacyMode: "provider_cloud",
+    credential: { type: "session_api_key", apiKey: "session-test-api-key-123" },
+    input: { resumeText: "Built Python services.", job: { title: "E", location, description: "Python required." }, candidate }
+  }));
+  const COMPARISON = /candidate.workAuthorization is what the candidate said about themselves/;
+  const CONVENTIONS = /The market whose CV conventions matter is the employer's/;
+
+  // unknown is the markup's default and workAuthorization.js treats it as nothing to
+  // say, so a comparison instruction on that run has nothing to compare.
+  assert.equal(COMPARISON.test(build({ workAuthorization: "unknown" }, "")), false);
+  assert.equal(COMPARISON.test(build({}, "")), false);
+  assert.match(build({ workAuthorization: "needs_sponsorship" }, ""), COMPARISON);
+
+  // The conventions rule itself ends by saying to omit the item without a location.
+  assert.equal(CONVENTIONS.test(build({}, "")), false);
+  assert.match(build({}, "Leiden, NL"), CONVENTIONS);
+
+  // Neither condition may take the other's rule down with it.
+  assert.match(build({ workAuthorization: "authorized" }, "Leiden, NL"), COMPARISON);
+  assert.match(build({ workAuthorization: "authorized" }, "Leiden, NL"), CONVENTIONS);
 });

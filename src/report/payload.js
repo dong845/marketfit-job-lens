@@ -11,12 +11,21 @@ export const LATEST_KEY = "marketfit.report.latest";
 /** Reports accumulate per analysis; keep the recent ones and drop the rest. */
 export const KEEP_REPORTS = 10;
 
-export function buildReportPayload({ evidence, job, provider, model, locale, generatedAt, candidate }) {
+export function buildReportPayload({ evidence, job, provider, model, locale, generatedAt, candidate, resumeTruncated }) {
   return {
     evidence: withoutEvidenceQuotes(evidence),
     // What the user declared about themselves. Without it the report would render a
     // different verdict from the panel it was opened from.
     candidate: { workAuthorization: candidate?.workAuthorization || "" },
+    // Counts and a capture token, never page or CV content. The report is the copy
+    // that gets printed, kept and reread weeks later, so it is the one that most
+    // needs to say what it was working from — dropping this here would leave the
+    // durable document more confident than the panel it came from.
+    sourceQuality: {
+      method: job?.extraction?.method || "",
+      removedLines: Number(job?.extraction?.removedLines || 0),
+      resumeTruncated: Boolean(resumeTruncated)
+    },
     // Only the job's identity travels — never the CV text or the captured page body.
     job: {
       title: job?.title || "",

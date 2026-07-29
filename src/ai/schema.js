@@ -42,13 +42,18 @@ export const RESULT_LIMITS = Object.freeze({
   strengths: 8,
   gaps: 8,
   risks: 8,
+  // Deliberately the shortest list here. A CV with six things wrong with it is a
+  // different conversation from the one this panel is having, and a long list of
+  // them reads as an attack rather than as advice.
+  profileRisks: 5,
   resumeTailoring: 8,
   interviewFocus: 8,
   uncertainties: 8,
   suggestedActions: 8,
   statedConditions: 6,
   evidencePerItem: 4,
-  overviewEvidence: 6
+  overviewEvidence: 6,
+  screeningTerms: 12
 });
 
 /**
@@ -97,7 +102,7 @@ export const VERDICTS = Object.freeze(["strong_fit", "worth_applying", "stretch"
 export const AGENT_EVIDENCE_SCHEMA = Object.freeze({
   type: "object",
   additionalProperties: false,
-  required: ["recommendation", "statedConditions", "overview", "requirements", "strengths", "gaps", "risks", "resumeTailoring", "interviewFocus", "uncertainties", "suggestedActions"],
+  required: ["recommendation", "statedConditions", "overview", "requirements", "screening", "strengths", "gaps", "risks", "profileRisks", "resumeTailoring", "interviewFocus", "uncertainties", "suggestedActions"],
   properties: {
     recommendation: {
       type: "object",
@@ -190,6 +195,51 @@ export const AGENT_EVIDENCE_SCHEMA = Object.freeze({
         }
       }
     },
+    /**
+     * Whether the CV will survive the read that happens before anyone judges it.
+     *
+     * Everything else in this schema compares capability: can this person do what the
+     * posting asks. Screening is a different question with a different answer — does
+     * the document contain the words that get searched for, and does its title look
+     * like the one being hired. A candidate can match every requirement in this result
+     * and never be read, and nothing in a requirement-by-requirement comparison can
+     * see that happening. The two are deliberately independent: a requirement scored
+     * strong while its term is absent is not a contradiction, it is the single most
+     * useful thing this section reports.
+     */
+    screening: {
+      type: "object",
+      additionalProperties: false,
+      required: ["titleMatch", "terms"],
+      properties: {
+        titleMatch: {
+          type: "object",
+          additionalProperties: false,
+          required: ["direction", "note"],
+          properties: {
+            direction: { type: "string", enum: ["same", "adjacent", "distant"] },
+            note: { type: "string", minLength: 1, maxLength: FIELD_LIMITS.note }
+          }
+        },
+        terms: {
+          type: "array",
+          maxItems: RESULT_LIMITS.screeningTerms,
+          items: {
+            type: "object",
+            additionalProperties: false,
+            required: ["term", "presence", "cvWording", "evidence"],
+            properties: {
+              // The posting's own string, because that is what gets searched for.
+              term: { type: "string", minLength: 1, maxLength: FIELD_LIMITS.shortLabel },
+              presence: { type: "string", enum: ["verbatim", "variant", "absent"] },
+              // What the CV calls it instead. Empty unless the presence is variant.
+              cvWording: { type: "string", maxLength: FIELD_LIMITS.shortLabel },
+              evidence: { type: "array", minItems: 1, maxItems: 4, items: EVIDENCE_SCHEMA }
+            }
+          }
+        }
+      }
+    },
     strengths: { type: "array", maxItems: RESULT_LIMITS.strengths, items: CITED_ITEM_SCHEMA },
     gaps: {
       type: "array",
@@ -221,6 +271,37 @@ export const AGENT_EVIDENCE_SCHEMA = Object.freeze({
           title: { type: "string", minLength: 1, maxLength: FIELD_LIMITS.name },
           severity: { type: "string", enum: ["material", "moderate", "unknown"] },
           summary: { type: "string", minLength: 1, maxLength: FIELD_LIMITS.prose },
+          evidence: { type: "array", minItems: 1, maxItems: 4, items: EVIDENCE_SCHEMA }
+        }
+      }
+    },
+    /**
+     * What a screener reads in the CV itself and hesitates over, whatever this
+     * posting happens to ask for.
+     *
+     * The two lists next to this one both compare the CV against the posting: a gap
+     * is the CV falling short of something asked for, a risk is the ROLE going wrong
+     * for this person. Neither has anywhere to put the reasons applications are
+     * actually binned — an unexplained year out, three eight-month jobs in a row, a
+     * pivot with no bridging story, a claimed title the projects do not support, a
+     * skills list with no work behind it. Those are invisible to a requirement-by-
+     * requirement comparison and decisive at the fifteen-second read, so before this
+     * existed the model could notice one and have no field to report it in.
+     */
+    profileRisks: {
+      type: "array",
+      maxItems: RESULT_LIMITS.profileRisks,
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["title", "severity", "summary", "howToAddress", "evidence"],
+        properties: {
+          title: { type: "string", minLength: 1, maxLength: FIELD_LIMITS.name },
+          severity: { type: "string", enum: ["material", "moderate", "unknown"] },
+          summary: { type: "string", minLength: 1, maxLength: FIELD_LIMITS.prose },
+          // Naming the problem without a way to handle it is the failure mode here:
+          // most of these cannot be fixed at all, only explained well.
+          howToAddress: { type: "string", minLength: 1, maxLength: FIELD_LIMITS.prose },
           evidence: { type: "array", minItems: 1, maxItems: 4, items: EVIDENCE_SCHEMA }
         }
       }
@@ -337,6 +418,21 @@ export function parseTaskRequest(value) {
   const job = object(input.job, "job is required.");
   const jobDescription = text(job.description, "job description", MAX_JOB_LENGTH);
   const candidate = object(input.candidate || {}, "candidate must be an object.");
+  /**
+   * How much of each input actually survived to this point.
+   *
+   * Absence is what these describe. A requirement the furniture filter removed and a
+   * requirement the posting never carried are the same silence to a model, and it
+   * reports the second one as a finding — "the posting does not ask for X" — with no
+   * way to know it is reading a hole rather than a fact.
+   *
+   * Capture confidence is deliberately not here. runAgentReview refuses to analyse
+   * anything below hasUsableJobContent's floor, so by the time a request is built the
+   * value never varies enough to change an answer, and a field no instruction consumes
+   * is indistinguishable from one the model was told to ignore. The reader-facing
+   * figure travels in the report payload instead, where something does read it.
+   */
+  const sourceQuality = object(input.sourceQuality || {}, "input.sourceQuality must be an object.");
   const options = object(request.options || {}, "options must be an object.");
   const model = optionalText(options.model, "options.model", 100);
   const language = optionalText(options.language, "options.language", 8) || "en";
@@ -368,6 +464,14 @@ export function parseTaskRequest(value) {
       // requirement, so nothing was lost by dropping the field.
       candidate: {
         workAuthorization: optionalText(candidate.workAuthorization, "candidate.workAuthorization", 80)
+      },
+      // The method is our own capture token rather than anything read off the page,
+      // so it is bounded rather than enumerated: enumerating it here would make the
+      // ai layer import the extraction layer to learn a list it never branches on.
+      sourceQuality: {
+        method: optionalText(sourceQuality.method, "sourceQuality.method", 40),
+        removedLines: wholeNumber(sourceQuality.removedLines),
+        resumeTruncated: Boolean(sourceQuality.resumeTruncated)
       }
     }
   };
@@ -389,11 +493,12 @@ export function parseAgentEvidence(value, request) {
   const strengths = list(result.strengths);
   const gaps = list(result.gaps);
   const risks = list(result.risks);
+  const profileRisks = list(result.profileRisks);
   const resumeTailoring = list(result.resumeTailoring);
   const interviewFocus = list(result.interviewFocus);
   const uncertainties = list(result.uncertainties);
   const suggestedActions = list(result.suggestedActions);
-  if (![requirements, strengths, gaps, risks, resumeTailoring, interviewFocus, uncertainties, suggestedActions].some((items) => items.length)) {
+  if (![requirements, strengths, gaps, risks, profileRisks, resumeTailoring, interviewFocus, uncertainties, suggestedActions].some((items) => items.length)) {
     invalid("Provider returned an analysis with no findings of any kind.");
   }
   // Trim rather than reject: an over-long list is verbosity, and discarding a
@@ -416,9 +521,11 @@ export function parseAgentEvidence(value, request) {
       evidence: parseEvidenceList(overview.evidence, request, "overview.evidence", RESULT_LIMITS.overviewEvidence)
     },
     requirements: trim(requirements, "requirements").map((item) => parseRequirement(item, request)),
+    screening: parseScreening(result.screening, request),
     strengths: trim(strengths, "strengths").map((item) => parseCitedItem(item, request, "strength")),
     gaps: trim(gaps, "gaps").map((item) => parseSeverityItem(item, request, "gap")),
     risks: trim(risks, "risks").map((item) => parseSeverityItem(item, request, "risk")),
+    profileRisks: parseProfileRisks(profileRisks, request),
     resumeTailoring: trim(resumeTailoring, "resumeTailoring").map((item) => parseTailoringItem(item, request)),
     interviewFocus: trim(interviewFocus, "interviewFocus").map((item) => parseInterviewItem(item, request)),
     uncertainties: trim(uncertainties, "uncertainties").map((item) => {
@@ -516,6 +623,65 @@ function parseStatedConditions(value, request) {
         statement: outputText(item.statement, "statedCondition.statement", FIELD_LIMITS.prose),
         question: softText(item.question, FIELD_LIMITS.question),
         evidence: parseEvidenceList(item.evidence, request, "statedCondition.evidence", RESULT_LIMITS.evidencePerItem)
+      }];
+    } catch {
+      return [];
+    }
+  });
+}
+
+const TERM_PRESENCE = new Set(["verbatim", "variant", "absent"]);
+const TITLE_DIRECTIONS = new Set(["same", "adjacent", "distant"]);
+
+/**
+ * Whether the CV's wording will survive a keyword search, kept separate from whether
+ * the candidate can do the job.
+ *
+ * Tolerant in both halves independently: a model that returns usable terms and a
+ * malformed title comparison should lose the title comparison only. Absent entirely
+ * is a valid reply — four of the selectable models predate this field.
+ */
+function parseScreening(value, request) {
+  if (!value || typeof value !== "object") return null;
+  const terms = (Array.isArray(value.terms) ? value.terms : []).slice(0, RESULT_LIMITS.screeningTerms).flatMap((item) => {
+    if (!item || typeof item !== "object" || !TERM_PRESENCE.has(item.presence)) return [];
+    try {
+      return [{
+        term: outputText(item.term, "screening.term", FIELD_LIMITS.shortLabel),
+        presence: item.presence,
+        cvWording: softText(item.cvWording, FIELD_LIMITS.shortLabel),
+        evidence: parseEvidenceList(item.evidence, request, "screening.evidence", RESULT_LIMITS.evidencePerItem)
+      }];
+    } catch {
+      return [];
+    }
+  });
+  const title = value.titleMatch;
+  const titleMatch = title && typeof title === "object" && TITLE_DIRECTIONS.has(title.direction)
+    ? { direction: title.direction, note: softText(title.note, FIELD_LIMITS.note) }
+    : null;
+  return terms.length || titleMatch ? { titleMatch, terms } : null;
+}
+
+/**
+ * Red flags in the CV itself. Unrecognisable items are dropped, never guessed at.
+ *
+ * Same tolerance as statedConditions rather than the same strictness as gaps: this
+ * list arrived after four of the selectable models had shipped, so a model that
+ * malforms one entry has still produced the rest of a paid analysis, and throwing it
+ * away over the newest field would be the wrong trade.
+ */
+function parseProfileRisks(value, request) {
+  if (!Array.isArray(value)) return [];
+  return value.slice(0, RESULT_LIMITS.profileRisks).flatMap((item) => {
+    if (!item || typeof item !== "object" || !GAP_SEVERITIES.has(item.severity)) return [];
+    try {
+      return [{
+        title: outputText(item.title, "profileRisk.title", FIELD_LIMITS.name),
+        severity: item.severity,
+        summary: outputText(item.summary, "profileRisk.summary", FIELD_LIMITS.prose),
+        howToAddress: softText(item.howToAddress, FIELD_LIMITS.prose),
+        evidence: parseEvidenceList(item.evidence, request, "profileRisk.evidence", RESULT_LIMITS.evidencePerItem)
       }];
     } catch {
       return [];
@@ -695,6 +861,18 @@ function withoutBlockIds(value) {
 function optionalText(value, label, maxLength) {
   if (value === undefined || value === null || value === "") return "";
   return text(value, label, maxLength);
+}
+
+/**
+ * A count from our own capture, normalised rather than refused.
+ *
+ * Nothing branches on the exact number beyond a threshold, so a missing or absurd
+ * value should degrade to "nothing to report" instead of failing a request the user
+ * is about to pay for.
+ */
+function wholeNumber(value) {
+  const number = Math.round(Number(value));
+  return Number.isFinite(number) && number > 0 ? Math.min(number, 100000) : 0;
 }
 
 function arrayOfText(value, label, maxItems, maxLength) {

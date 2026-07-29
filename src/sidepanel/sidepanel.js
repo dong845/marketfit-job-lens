@@ -528,7 +528,16 @@ async function runAgentReview() {
         },
         // The market selector was collected and never sent — a control that looked
         // like it personalised the analysis and did nothing.
-        candidate: { workAuthorization: fields.workAuthorization.value }
+        candidate: { workAuthorization: fields.workAuthorization.value },
+        // What the inputs were worth by the time they got here. Without it the model
+        // cannot tell a requirement the capture lost from one the posting never had,
+        // and reports the second — confidently, and in the same voice as everything
+        // it did read.
+        sourceQuality: {
+          method: job.extraction?.method || "",
+          removedLines: job.extraction?.removedLines || 0,
+          resumeTruncated: Boolean(resume.truncated)
+        }
       }
     };
     const model = fields.apiModel.value;
@@ -543,7 +552,10 @@ async function runAgentReview() {
       // for a completed analysis.
       if (!response?.result) throw new Error(t(locale, "analysisEmpty"));
       lastAgentEvidence = response.result;
-      lastRunContext = { job, provider, model, generatedAt: new Date().toISOString() };
+      // resumeTruncated rides along because the report is built after the CV is out
+      // of scope, and a report that omits the caveat the panel showed would be the
+      // more confident of the two documents on strictly less information.
+      lastRunContext = { job, provider, model, resumeTruncated: Boolean(resume.truncated), generatedAt: new Date().toISOString() };
     } finally {
       stopTimer();
     }
@@ -566,11 +578,27 @@ async function runAgentReview() {
   }
 }
 
-function renderAnalysis(evidence) { fields.result.innerHTML = renderAnalysisHtml(evidence, locale, declaredCandidate()); }
+function renderAnalysis(evidence) { fields.result.innerHTML = renderAnalysisHtml(evidence, locale, declaredCandidate(), runSourceQuality()); }
 
 /** What the user said about themselves — their words, never a finding about them. */
 function declaredCandidate() {
   return { workAuthorization: fields.workAuthorization.value };
+}
+
+/**
+ * The limitations of the run being shown, in the shape both surfaces render.
+ *
+ * Read from lastRunContext rather than from currentJob, so switching language or
+ * re-capturing the page cannot retitle an analysis with a different run's caveats.
+ */
+function runSourceQuality() {
+  const job = lastRunContext?.job;
+  if (!job) return null;
+  return {
+    method: job.extraction?.method || "",
+    removedLines: Number(job.extraction?.removedLines || 0),
+    resumeTruncated: Boolean(lastRunContext.resumeTruncated)
+  };
 }
 
 /**
@@ -708,7 +736,7 @@ function renderReportProblem(detail, url) {
     : "";
   fields.result.innerHTML =
     `<div class="empty action-message"><p><strong>${escapeHtml(t(locale, "reportFailed"))}</strong></p><p class="meta">${escapeHtml(detail)}</p>${manual}</div>`
-    + renderAnalysisHtml(lastAgentEvidence, locale);
+    + renderAnalysisHtml(lastAgentEvidence, locale, declaredCandidate(), runSourceQuality());
   setStatus(t(locale, "reportFailed"));
 }
 

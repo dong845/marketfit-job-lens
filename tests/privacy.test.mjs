@@ -106,3 +106,24 @@ test("with no provider chosen, the preview says nothing is sent yet", () => {
   assert.match(preview.note, /不会发送任何内容/);
   assert.equal(/Bridge/i.test(JSON.stringify(preview)), false, "the local Bridge route was removed with the CLI providers");
 });
+
+test("quote stripping reaches inside the sections added after it was written", () => {
+  // withoutEvidenceQuotes recurses generically, so a new section inherits the rule —
+  // but only for as long as nothing gives it a bespoke shape. This is the check that
+  // notices if one ever does.
+  const payload = buildReportPayload({
+    evidence: {
+      profileRisks: [{ title: "Gap", severity: "moderate", summary: "Unexplained break.", howToAddress: "Name it.", evidence: [{ source: "resume", ref: "CV-004", quote: "A. User · user@example.com" }] }],
+      screening: { titleMatch: { direction: "distant", note: "n" }, terms: [{ term: "MLOps", presence: "variant", cvWording: "deployment pipelines", evidence: [{ source: "resume", ref: "CV-005", quote: "Example Health, 2019-2024" }] }] }
+    },
+    job: { title: "Engineer" }, provider: "openai-api", model: "gpt-5-mini", locale: "en", generatedAt: "2026-07-29T00:00:00.000Z"
+  });
+  const serialized = JSON.stringify(payload);
+  assert.equal(serialized.includes("user@example.com"), false);
+  assert.equal(serialized.includes("Example Health"), false);
+  assert.equal(payload.evidence.profileRisks[0].evidence[0].ref, "CV-004");
+  // cvWording is rendered on both surfaces, so it stays for the same reason every
+  // other visible field does: the report cannot show what it was not given. It is
+  // model prose about the CV, the category already stored, not a resolved source block.
+  assert.equal(payload.evidence.screening.terms[0].cvWording, "deployment pipelines");
+});

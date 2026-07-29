@@ -287,3 +287,183 @@ test("a segment with nothing in it is not drawn", () => {
   assert.equal(bar.includes("tone-warn"), false, "an empty segment must not be drawn");
   assert.equal(bar.includes("tone-bad"), false, "an empty segment must not be drawn");
 });
+
+/**
+ * The caveats have to stay rare to keep working, so both directions are pinned:
+ * a limitation that exists must reach the verdict, and one that does not must not
+ * print a reassurance nobody asked for.
+ */
+const withVerdict = (overrides = {}) => evidenceFixture({
+  recommendation: { verdict: "worth_applying", headline: "Worth an evening.", rationale: "The core is evidenced." },
+  ...overrides
+});
+
+test("a truncated CV is disclosed against the verdict, not buried in a stats line", () => {
+  const html = renderAnalysisHtml(withVerdict(), "en", {}, { method: "semantic_selector", removedLines: 0, resumeTruncated: true });
+  const verdict = html.slice(0, html.indexOf("</section>"));
+  assert.match(verdict, /verdict-quality/);
+  assert.match(verdict, /60,000 characters/);
+  // Above the headline: it qualifies everything below rather than adding a conclusion.
+  assert.ok(verdict.indexOf("verdict-quality") < verdict.indexOf("verdict-headline"));
+});
+
+test("heavy filtering is disclosed, light filtering is not", () => {
+  const heavy = renderAnalysisHtml(evidenceFixture(), "en", {}, { method: "semantic_selector", removedLines: 34, resumeTruncated: false });
+  assert.match(heavy, /34 page elements were removed/);
+  const light = renderAnalysisHtml(evidenceFixture(), "en", {}, { method: "semantic_selector", removedLines: 4, resumeTruncated: false });
+  assert.equal(light.includes("verdict-quality"), false, "routine furniture filtering is not a caveat");
+});
+
+test("pasted job text says so, because the analysis cannot see the live page", () => {
+  const html = renderAnalysisHtml(evidenceFixture(), "en", {}, { method: "manual_paste", removedLines: 0, resumeTruncated: false });
+  assert.match(html, /text you pasted/);
+});
+
+test("a clean run carries no caveat at all", () => {
+  const html = renderAnalysisHtml(evidenceFixture(), "en", {}, { method: "schema_org_jsonld", removedLines: 2, resumeTruncated: false });
+  assert.equal(html.includes("verdict-quality"), false);
+  // And an older stored report, written before the field existed, must still render.
+  assert.equal(renderAnalysisHtml(evidenceFixture(), "en", {}).includes("verdict-quality"), false);
+});
+
+test("the caveat survives a verdict the model failed to return", () => {
+  // The no-verdict card is a separate early return, and it is the case where the
+  // reader most needs to know what the analysis was working from.
+  const html = renderAnalysisHtml(evidenceFixture({ recommendation: null }), "en", {}, { method: "manual_paste", removedLines: 0, resumeTruncated: true });
+  assert.match(html, /verdict-quality/);
+});
+
+test("caveats are written in the reader's language", () => {
+  const html = renderAnalysisHtml(withVerdict(), "zh", {}, { method: "manual_paste", removedLines: 40, resumeTruncated: true });
+  // Scoped to the paragraph itself: the fixture's own prose is English, so a looser
+  // slice would fail on the sample data rather than on the strings under test.
+  const note = html.match(/<p class="verdict-quality">([\s\S]*?)<\/p>/)[1];
+  assert.match(note, /只读取了简历的前/);
+  assert.match(note, /移除了 40 处元素/);
+  assert.match(note, /你粘贴的职位文本/);
+  assert.equal(/[A-Za-z]{3,}/.test(note), false, "no English may leak into the Chinese caveat");
+});
+
+test("a self-contradicting card keeps both halves and says they disagree", () => {
+  const html = renderAnalysisHtml(withVerdict({
+    recommendation: { verdict: "strong_fit", headline: "Strong match.", rationale: "Everything is evidenced.", effort: "multi_day" }
+  }), "en", {}, null);
+  assert.match(html, /analysis-notice/);
+  assert.match(html, /verdict and the effort estimate disagree/);
+  // Both survive: dropping one would trade a contradiction the reader can weigh for
+  // a guess they cannot see.
+  assert.match(html, /verdict-word">Apply</);
+  assert.match(html, /More than one evening/);
+});
+
+test("the work-authorization downgrade suppresses the contradiction it would double up on", () => {
+  // That card already tells the reader the verdict above it does not hold; a second
+  // caution about the same word is noise at the most-read point on the panel.
+  const html = renderAnalysisHtml(withVerdict({
+    recommendation: { verdict: "strong_fit", headline: "h", rationale: "r", effort: "multi_day" },
+    statedConditions: [{ type: "sponsorship", stance: "requires_existing", statement: "We do not sponsor visas.", evidence: [] }]
+  }), "en", { workAuthorization: "needs_sponsorship" }, null);
+  assert.match(html, /verdict-override/);
+  assert.equal(html.includes("verdict and the effort estimate disagree"), false);
+});
+
+test("an implausible hard-filter count qualifies the list it orders", () => {
+  const knockout = (name) => ({ name, level: "required", screening: "knockout", match: "gap", explanation: "x", evidence: [] });
+  const html = renderAnalysisHtml(withVerdict({
+    requirements: [knockout("Clearance"), knockout("Licence"), knockout("PhD"), knockout("Dutch")]
+  }), "en", {}, null);
+  assert.match(html, /4 requirements are marked hard filters/);
+  // Inside the requirements card, where it qualifies how to read that order.
+  const card = html.slice(html.indexOf("requirement-list") - 400, html.indexOf("requirement-list"));
+  assert.match(card, /analysis-notice/);
+});
+
+test("a plan too short for its own gaps admits it", () => {
+  const html = renderAnalysisHtml(withVerdict({
+    gaps: [
+      { title: "A", severity: "material", summary: "s", closable: "before_apply", howToClose: "Surface it.", evidence: [] },
+      { title: "B", severity: "moderate", summary: "s", closable: "before_apply", howToClose: "Name it.", evidence: [] }
+    ],
+    suggestedActions: [{ action: "Rewrite the summary.", priority: "before_apply", evidence: [] }]
+  }), "en", {}, null);
+  assert.match(html, /2 gaps say they can be closed before applying, but the plan lists 1 actions/);
+});
+
+test("ordinary output carries no notices at all", () => {
+  const html = renderAnalysisHtml(withVerdict({
+    recommendation: { verdict: "worth_applying", headline: "h", rationale: "r", effort: "quick" }
+  }), "en", {}, null);
+  assert.equal(html.includes("analysis-notice"), false, "a check that cries wolf stops being read");
+});
+
+test("CV red flags render with the sentence that answers them", () => {
+  const html = renderAnalysisHtml(withVerdict({
+    profileRisks: [{
+      title: "Fourteen months unaccounted for",
+      severity: "moderate",
+      summary: "The CV runs from the 2023 role straight to the 2025 one with nothing between them.",
+      howToAddress: "Name the period and what you did in it, in one line under the 2025 role.",
+      evidence: []
+    }]
+  }), "en", {}, null);
+  assert.match(html, /What a screener may hesitate over/);
+  assert.match(html, /Fourteen months unaccounted for/);
+  assert.match(html, /What to say about it:/);
+  // Between the gaps and the plan: what is missing here, what reads oddly, what to do.
+  assert.ok(html.indexOf("Gaps to close") < html.indexOf("What a screener may hesitate over"));
+  assert.ok(html.indexOf("What a screener may hesitate over") < html.indexOf("Do this next"));
+});
+
+test("a clean CV shows no red-flag section at all", () => {
+  // Manufacturing one to fill the field would tell the reader their CV has a problem
+  // it does not have, which is worse than the section never appearing.
+  const html = renderAnalysisHtml(withVerdict({ profileRisks: [] }), "en", {}, null);
+  assert.equal(html.includes("What a screener may hesitate over"), false);
+  // And a stored report written before the field existed must still render.
+  assert.equal(renderAnalysisHtml(withVerdict(), "en").includes("What a screener may hesitate over"), false);
+});
+
+test("a red flag with no honest answer still names itself", () => {
+  const html = renderAnalysisHtml(withVerdict({
+    profileRisks: [{ title: "Three tenures under a year", severity: "material", summary: "Consecutive short roles.", howToAddress: "", evidence: [] }]
+  }), "en", {}, null);
+  assert.match(html, /Three tenures under a year/);
+  assert.equal(html.includes("What to say about it:"), false);
+});
+
+test("wording coverage is shown as states, never as a keyword score", () => {
+  const html = renderAnalysisHtml(withVerdict({
+    screening: {
+      titleMatch: { direction: "adjacent", note: "The posting says Reconstruction Engineer; your CV says Research Engineer." },
+      terms: [
+        { term: "PyTorch", presence: "verbatim", cvWording: "", evidence: [] },
+        { term: "MLOps", presence: "absent", cvWording: "", evidence: [] },
+        { term: "CI/CD", presence: "variant", cvWording: "build pipelines", evidence: [] }
+      ]
+    }
+  }), "en", {}, null);
+  assert.match(html, /Whether your CV gets read/);
+  assert.match(html, /Neighbouring title/);
+  assert.match(html, /yours: build pipelines/);
+  // A percentage here would need a weight per term, and no weight would be anything
+  // but invented — the same reason the verdict shows a bar rather than a figure.
+  const card = html.slice(html.indexOf("screening-list"), html.indexOf("</section>", html.indexOf("screening-list")));
+  assert.equal(/\d+\s*%/.test(card), false, "a keyword score would be an invented weighting");
+  // Absent first, then variant: the order they cost the application.
+  const rendered = [...card.matchAll(/screening-word">([^<]+)</g)].map((match) => match[1]);
+  assert.deepEqual(rendered, ["MLOps", "CI/CD", "PyTorch"]);
+});
+
+test("wording sits beside the requirement list it reads the other way", () => {
+  const html = renderAnalysisHtml(withVerdict({
+    screening: { titleMatch: null, terms: [{ term: "MLOps", presence: "absent", cvWording: "", evidence: [] }] }
+  }), "en", {}, null);
+  assert.ok(html.indexOf("Requirements") < html.indexOf("Whether your CV gets read"));
+  assert.ok(html.indexOf("Whether your CV gets read") < html.indexOf("Where you are strongest"));
+});
+
+test("an analysis with no screening section renders without one", () => {
+  // Four selectable models predate the field; a reply that omits it is still an analysis.
+  assert.equal(renderAnalysisHtml(withVerdict(), "en").includes("Whether your CV gets read"), false);
+  assert.equal(renderAnalysisHtml(withVerdict({ screening: { titleMatch: null, terms: [] } }), "en").includes("Whether your CV gets read"), false);
+});

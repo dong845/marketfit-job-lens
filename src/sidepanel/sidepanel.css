@@ -100,6 +100,11 @@ code { font-size: 11px; }
 .item-head { align-items: baseline; display: flex; gap: 6px; justify-content: space-between; }
 .finding-list p { color: var(--muted); font-size: 12px; line-height: 1.45; margin-top: 3px; }
 
+/* Wording coverage: a tag, the posting's word, and what the CV says instead. Wraps
+   rather than truncates — a term the reader cannot see is one they cannot fix. */
+.screening-list { display: grid; gap: 7px; list-style: none; margin: 0; padding: 0; }
+.screening-term { align-items: baseline; display: flex; flex-wrap: wrap; gap: 6px; }
+.screening-word { font-size: 12px; font-weight: 600; }
 .requirement-list, .action-list { display: grid; gap: 0; list-style: none; margin: 0; padding: 0; }
 .requirement, .action { border-top: 1px solid var(--line); display: grid; gap: 4px; padding: 10px 0 10px 10px; }
 .requirement:first-child, .action:first-child { border-top: 0; }
@@ -162,6 +167,12 @@ code { font-size: 11px; }
 .coverage-fill.tone-bad { background: var(--danger); }
 .coverage .verdict-score { border-top: 0; padding-top: 0; }
 .verdict-score { border-top: 1px solid var(--line); color: var(--muted); font-size: 11px; font-variant-numeric: tabular-lining-nums; line-height: 1.45; padding-top: 6px; }
+/* A limit on the analysis, not a finding of it — quiet, and above the headline so it
+   is read as a condition on everything below rather than as one more conclusion. */
+.verdict-quality { background: var(--soft-warn); border-radius: 6px; color: var(--warn); font-size: 11px; line-height: 1.45; padding: 6px 8px; }
+/* The analysis contradicting itself. Set apart from the findings by a rule rather
+   than a fill: it is a caution about the card it sits in, not another item on it. */
+.analysis-notice { border-left: 2px solid var(--warn); color: var(--warn); font-size: 11px; line-height: 1.45; padding-left: 8px; }
 .verdict-headline { font-size: 14px; font-weight: 700; line-height: 1.4; }
 .verdict-effort { color: var(--ink); font-size: 12px; line-height: 1.45; }
 .verdict-rationale { color: var(--muted); font-size: 12px; line-height: 1.5; }

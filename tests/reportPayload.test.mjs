@@ -110,3 +110,20 @@ test("a link with no id still falls back to the most recent report, across both 
   // A latest pointer aiming at something already gone is not a report either.
   assert.equal(await readReport([storeOf({ [LATEST_KEY]: "gone" })], null), null);
 });
+
+test("the report says what it was working from, and still carries no content", () => {
+  const payload = buildReportPayload({
+    evidence: { gaps: [{ title: "Kubernetes", evidence: [{ ref: "CV-001", source: "resume", quote: "ldh@example.com — Kubernetes" }] }] },
+    job: { title: "Engineer", extraction: { method: "manual_paste", removedLines: 31, removedSample: ["Sign in", "Cookie policy"] } },
+    resumeTruncated: true,
+    provider: "openai-api", model: "gpt-5-mini", locale: "en", generatedAt: "2026-07-29T10:00:00.000Z", candidate: {}
+  });
+  // The printed copy is the one reread weeks later, so it must not be the more
+  // confident of the two documents on strictly less information.
+  assert.deepEqual(payload.sourceQuality, { method: "manual_paste", removedLines: 31, resumeTruncated: true });
+  // Counts and a capture token only — removedSample is page text and stays behind,
+  // exactly like the CV quotes the payload already strips.
+  const serialized = JSON.stringify(payload);
+  assert.equal(serialized.includes("Cookie policy"), false, "removed page text must not ride along into storage");
+  assert.equal(serialized.includes("ldh@example.com"), false, "resolved CV quotes are still stripped");
+});

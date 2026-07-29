@@ -53,6 +53,10 @@ h1, h2, h3, h4, p { margin: 0; }
 .finding-list p { color: var(--muted); margin-top: 3px; }
 .item-head { align-items: baseline; display: flex; gap: 8px; justify-content: space-between; }
 
+/* Matches the panel: tag, the posting's word, and what the CV says instead. */
+.screening-list { display: grid; gap: 9px; list-style: none; margin: 0; padding: 0; }
+.screening-term { align-items: baseline; display: flex; flex-wrap: wrap; gap: 8px; }
+.screening-word { font-size: 14px; font-weight: 600; }
 .requirement-list, .action-list { display: grid; list-style: none; margin: 0; padding: 0; }
 .requirement, .action { border-top: 1px solid var(--line); display: grid; gap: 5px; padding: 13px 0 13px 12px; }
 .requirement:first-child, .action:first-child { border-top: 0; padding-top: 4px; }
@@ -116,6 +120,10 @@ h1, h2, h3, h4, p { margin: 0; }
 .coverage-fill.tone-bad { background: var(--danger); }
 .coverage .verdict-score { border-top: 0; padding-top: 0; }
 .verdict-score { border-top: 1px solid var(--line); color: var(--muted); font-size: 13px; font-variant-numeric: tabular-lining-nums; line-height: 1.5; padding-top: 8px; }
+/* Matches the panel: a condition on the analysis, set above the headline it qualifies. */
+.verdict-quality { background: var(--soft-warn); border-radius: 6px; color: var(--warn); font-size: 13px; line-height: 1.5; padding: 8px 10px; }
+/* Matches the panel: a caution about the card it sits in, not another finding on it. */
+.analysis-notice { border-left: 2px solid var(--warn); color: var(--warn); font-size: 13px; line-height: 1.55; padding-left: 10px; }
 .verdict-headline { font-size: 18px; font-weight: 700; line-height: 1.4; }
 .verdict-effort { font-size: 14px; line-height: 1.55; }
 .verdict-rationale { color: var(--muted); font-size: 14px; line-height: 1.6; }

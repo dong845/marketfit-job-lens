@@ -33,7 +33,7 @@ async function render() {
     return fail(root, t(uiLocale, "reportExpired"));
   }
 
-  const { evidence, job, provider, model, generatedAt, candidate } = payload;
+  const { evidence, job, provider, model, generatedAt, candidate, sourceQuality } = payload;
   const locale = payload.locale || uiLocale;
   document.documentElement.lang = locale === "zh" ? "zh-CN" : "en";
   const heading = job?.title || t(locale, "appTitle");
@@ -52,7 +52,7 @@ async function render() {
     </header>
     <!-- renderAnalysisHtml already closes with the AI disclaimer; a footer repeating
          it printed the same paragraph twice, one line apart. -->
-    <section class="report-body">${renderAnalysisHtml(evidence, locale, candidate)}</section>`;
+    <section class="report-body">${renderAnalysisHtml(evidence, locale, candidate, sourceQuality)}</section>`;
 
   document.getElementById("printReport").addEventListener("click", () => window.print());
 }
