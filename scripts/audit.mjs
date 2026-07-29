@@ -364,6 +364,41 @@ for (const [file, readme] of readmes) {
 }
 ok.push(`both READMEs' model tables match the registry and link to each other`);
 
+// ---- every card the panel renders is described in both READMEs
+// The model table was checked against the registry and the prose was checked by
+// nobody, so two whole analysis sections shipped and the "Using it" table still
+// described the panel before them — through 29 green checks. The headings are derived
+// from analysisView.js rather than listed here, so a card added later is covered
+// without anyone remembering to extend this.
+//
+// Not in the table by decision, not by accident: the four below sit in the collapsed
+// Prepare and Check-before-applying groups, and the table walks the decision path
+// rather than enumerating every card. Adding a new key here needs a reason on the line.
+const UNDOCUMENTED_BY_DESIGN = new Set(["aiStrengths", "resumeTailoring", "interviewFocus", "aiRisks"]);
+const headingKeys = new Set();
+for (const m of viewSource.matchAll(/renderCards\(t\(locale, "(\w+)"\)/g)) headingKeys.add(m[1]);
+for (const m of viewSource.matchAll(/<h3>\$\{escapeHtml\(t\(locale, "(\w+)"\)\)\}<\/h3>/g)) headingKeys.add(m[1]);
+if (headingKeys.size < 8) fail.push(`only ${headingKeys.size} card headings found in analysisView.js — the heading pattern changed and this check has gone blind`);
+// block() answers which keys exist, not what they say, so the heading text is read
+// from the locale's own slice — searching the whole file would find the en string when
+// asked for the zh one, since en is declared first. JSON.parse decodes the escapes a
+// raw capture would leave in, which no README contains literally.
+const headingText = (locale, key) => {
+  const from = i18n.indexOf(`${locale}: {`);
+  const to = locale === "en" ? i18n.indexOf("zh: {") : i18n.indexOf("\n};");
+  const m = i18n.slice(from, to).match(new RegExp(`\\b${key}: ("(?:[^"\\\\]|\\\\.)*")`));
+  return m ? JSON.parse(m[1]).trim() : "";
+};
+for (const key of [...headingKeys].filter((key) => !UNDOCUMENTED_BY_DESIGN.has(key))) {
+  for (const [file, readme] of readmes) {
+    const locale = file === "README.md" ? "en" : "zh";
+    const heading = headingText(locale, key);
+    if (!heading) { fail.push(`${key} has no ${locale} string to document`); continue; }
+    if (!readme.includes(heading)) fail.push(`${file} never mentions "${heading}" — the panel renders that card and the README does not describe it`);
+  }
+}
+ok.push(`all ${headingKeys.size - UNDOCUMENTED_BY_DESIGN.size} documented card headings appear in both READMEs`);
+
 console.log(`\n${"=".repeat(64)}\nFAIL (${fail.length})`);
 fail.forEach((f) => console.log("  ✗ " + f));
 if (!fail.length) console.log("  none");

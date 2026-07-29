@@ -36,7 +36,14 @@ code and needs a reload.
 
 ## Using it
 
-Open a job posting, click **Analyze current job with AI**, and read down:
+Open a job posting and click **Analyze current job with AI**.
+
+**The first time on any given site, the panel will ask you to allow reading it.** That
+is Chrome, not a fault: `activeTab` is granted per invocation, so a site you have never
+analysed before has not been allowed yet. Click **Allow reading this site** once and it
+is settled for that site. Nothing has failed and nothing needs retrying.
+
+Then read down:
 
 | What you see | What it is telling you |
 | --- | --- |
@@ -46,7 +53,9 @@ Open a job posting, click **Analyze current job with AI**, and read down:
 | **What would change this** | The single edit that moves the application furthest |
 | **Conditions the employer states** | Their own sentence, plus the question that settles it — send that sentence as written |
 | **Requirements** | Each tagged required/preferred and met/partial/not met, hard filters first |
+| **Whether your CV gets read** | The same posting read the other way — not can you do it, but does your CV contain the words a recruiter searches. A term missing beside a requirement you meet is the line worth having |
 | **Gaps to close** | With *how* to close each, and which cannot be closed before applying |
+| **What a screener may hesitate over** | What the CV raises about your history whatever the job — an unexplained break, several short tenures, a claim with no work behind it. Most cannot be fixed, so each comes with the honest thing to say |
 | **Do this next** | The whole plan, grouped by when and numbered. Everything asked of you appears here once |
 | **What to ask them** / **What your CV leaves unanswered** | Two different jobs — the second is one only you can do |
 
@@ -91,10 +100,23 @@ you already paid for is the worse failure.
 | Which requirements screen you out | The coverage count under the verdict |
 | What to change, and what to ask | Stripping block IDs out of prose |
 | Which list an item belongs in | What counts as page furniture |
+| — | Whether the verdict and the effort estimate contradict each other |
+| — | Whether so many requirements are called hard filters that the ranking stops meaning anything |
+| — | Whether the plan is shorter than the gaps it says it closes |
 
 Anything whose failure would be both invisible and decisive sits on the right. The
 model is asked not to write `JD-001` into a sentence and mostly complies — mostly is
-not enough, so the parser removes them.
+not enough, so the parser removes them. The last three are the same argument: each is
+stated in the prompt, each is followed most of the time, and each fails in a way that
+looks like an ordinary result. Where two fields disagree the panel says so rather than
+picking one, because code can see the disagreement and not which side is right.
+
+**The analysis also says what it could not see.** A requirement the page filter
+removed and one the posting never carried are the same silence to a model, and it
+will report the second as a finding. So when a lot of the page was filtered, when your
+CV hit its length limit, or when the text is what you pasted, that limitation is
+stated against the verdict — not left in a line above it you have already scrolled
+past.
 
 **5 · What it will not do.** No visa routes, quotas or processing times: there is no
 policy data here and no way to verify what a model recalls, and a confident wrong
@@ -159,8 +181,8 @@ deleted icon, an id renamed in HTML but not JS, a string added in one language o
 an unescaped `innerHTML`, a network host that is not one of the three provider APIs,
 a rendered CSS class with no rule in either stylesheet, an error code with no
 translation, visible markup with no `data-i18n`, a README model table that has
-drifted from the registry, and a `const` in the injected page extractor that would
-sit in a temporal dead zone.
+drifted from the registry, a card the panel renders that neither README describes,
+and a `const` in the injected page extractor that would sit in a temporal dead zone.
 
 Most exist because the corresponding bug shipped once. Several failure modes here
 are silent by construction — `t()` renders a missing key as the key name; a filter
