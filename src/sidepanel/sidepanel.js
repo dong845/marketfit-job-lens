@@ -585,9 +585,9 @@ async function runAgentReview() {
     renderActionMessage(t(locale, "requestingAi"));
     const startedAt = Date.now();
     const inputChars = (resume.text?.length || 0) + (job.sourceText?.length || 0);
-    const stopTimer = startElapsedTimer(model, await estimateSeconds(model, inputChars));
+    const timer = startElapsedTimer(model, await estimateSeconds(model, inputChars));
     try {
-      const response = await directApiClient.runTask(task);
+      const response = await directApiClient.runTask(task, { onProgress: (update) => timer.report(update) });
       // Both routes answer with the same envelope. A missing result means the
       // provider was paid and produced nothing usable, which must not be mistaken
       // for a completed analysis.
@@ -598,7 +598,7 @@ async function runAgentReview() {
       // more confident of the two documents on strictly less information.
       lastRunContext = { job, provider, model, resumeTruncated: Boolean(resume.truncated), generatedAt: new Date().toISOString() };
     } finally {
-      stopTimer();
+      timer.stop();
     }
     // Show the result first. recordDuration only remembers how long this took, and
     // awaiting it put extension storage between a paid analysis and the reader: a
@@ -661,23 +661,54 @@ function revealResult() {
  * Reasoning models routinely take a minute or more on this prompt. Without a
  * moving number the panel looks hung, and people reload or click again.
  */
+/**
+ * The elapsed line, and what the wait is actually made of.
+ *
+ * A count of seconds says a run is slow and nothing about why, and the two reasons
+ * need opposite fixes: a model that thinks for two minutes before writing anything
+ * is answering a prompt that asks too much of it, while one that starts writing at
+ * five seconds and is still going at three minutes is producing more text than
+ * anybody will read. Both look the same from here without the stream, which is why
+ * this could not be shown before. `report` is fed from the transport as deltas land.
+ *
+ * It also answers the question a stalled run really raises — whether anything is
+ * arriving at all — which the seconds alone could never distinguish from a dead
+ * socket the browser has not noticed yet.
+ */
 function startElapsedTimer(model, estimate) {
   const startedAt = Date.now();
+  const progress = { firstTextMs: null, chars: 0 };
   const tick = () => {
     const seconds = Math.round((Date.now() - startedAt) / 1000);
     // Past the estimate, stop repeating a number that is now wrong.
-    fields.runProgress.textContent = seconds > estimate
+    const elapsed = seconds > estimate
       ? format(locale, "analysingOvertime", { model, seconds })
       : format(locale, "analysing", { model, seconds, estimate });
+    fields.runProgress.textContent = `${elapsed}${streamNote(progress)}`;
   };
   fields.runProgress.hidden = false;
   tick();
   const handle = setInterval(tick, 1000);
-  return () => {
-    clearInterval(handle);
-    fields.runProgress.hidden = true;
-    fields.runProgress.textContent = "";
+  return {
+    report(update) { Object.assign(progress, update); },
+    stop() {
+      clearInterval(handle);
+      fields.runProgress.hidden = true;
+      fields.runProgress.textContent = "";
+    }
   };
+}
+
+/**
+ * Thinking or writing, in the fewest words that separate them.
+ *
+ * The elapsed seconds are already in the sentence this appends to, so neither
+ * branch repeats them. What it adds is the one number that is not derivable from
+ * watching the clock: when the answer started.
+ */
+function streamNote({ firstTextMs, chars }) {
+  if (firstTextMs === null) return t(locale, "streamThinking");
+  return format(locale, "streamWriting", { start: Math.round(firstTextMs / 1000), chars });
 }
 
 /**

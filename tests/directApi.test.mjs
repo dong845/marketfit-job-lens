@@ -324,6 +324,59 @@ test("an event split across two network chunks is not lost", async () => {
   assert.equal(result.requirements[0].name, "Python");
 });
 
+test("progress separates the time spent thinking from the time spent writing", async () => {
+  // A count of seconds says a run is slow and nothing about why, and the two causes
+  // need opposite fixes. Keep-alive pings and thinking blocks ride the same stream
+  // and prove only that the socket is alive, so the moment worth reporting is the
+  // first character of the ANSWER — everything before it was the model thinking.
+  const json = JSON.stringify(validEvidence());
+  const updates = [];
+  const client = createDirectApiClient({
+    permissionsApi: { async contains() { return true; } },
+    fetchImpl: async () => ({
+      ok: true,
+      status: 200,
+      body: sseBody([
+        'data: {"type":"ping"}',
+        'data: {"type":"content_block_delta","delta":{"type":"thinking_delta","thinking":"weighing the C++ line"}}',
+        `data: ${JSON.stringify({ type: "content_block_delta", delta: { type: "text_delta", text: json.slice(0, 40) } })}`,
+        `data: ${JSON.stringify({ type: "content_block_delta", delta: { type: "text_delta", text: json.slice(40) } })}`,
+        'data: {"type":"message_delta","delta":{"stop_reason":"end_turn"}}'
+      ])
+    })
+  });
+
+  const { result } = await client.runTask(apiRequest("anthropic-api", "claude-sonnet-5"), {
+    onProgress: (update) => updates.push(update)
+  });
+  assert.equal(result.requirements[0].name, "Python");
+
+  // A ping and a thinking delta are traffic, not an answer: still thinking.
+  assert.equal(updates[0].firstTextMs, null, "a keep-alive must not read as the answer starting");
+  assert.equal(updates[1].firstTextMs, null, "and neither must a thinking block");
+  assert.equal(updates[1].chars, 0);
+
+  // The first answer text starts the clock, and it never restarts afterwards.
+  const writing = updates.filter((update) => update.firstTextMs !== null);
+  assert.ok(writing.length >= 2, "writing must be reported as it lands, not once at the end");
+  assert.equal(writing[0].chars, 40, "and how much has arrived so far");
+  assert.equal(writing.at(-1).chars, json.length);
+  assert.deepEqual([...new Set(writing.map((update) => update.firstTextMs))].length, 1, "the start time is measured once");
+});
+
+test("progress is optional, and a caller that wants none still gets its analysis", async () => {
+  const client = createDirectApiClient({
+    permissionsApi: { async contains() { return true; } },
+    fetchImpl: async () => ({
+      ok: true,
+      status: 200,
+      body: sseBody([`data: ${JSON.stringify({ type: "content_block_delta", delta: { type: "text_delta", text: JSON.stringify(validEvidence()) } })}`])
+    })
+  });
+  const { result } = await client.runTask(apiRequest("anthropic-api", "claude-sonnet-5"));
+  assert.equal(result.requirements[0].name, "Python");
+});
+
 test("a CRLF stream is read, and does not silently cost a second generation", async () => {
   // Line terminators in server-sent events may be CRLF, LF or CR, and the sender
   // picks. Splitting on "\n\n" alone found no event boundary at all in a CRLF

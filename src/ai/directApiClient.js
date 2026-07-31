@@ -64,15 +64,21 @@ export function createDirectApiClient({ fetchImpl = globalThis.fetch, permission
      * Returning bare evidence here meant `response.result` was undefined on the
      * API-key path: the run was billed and reported as complete, but nothing
      * rendered and there was no analysis to build a report from.
+     *
+     * `onProgress` is called as the streamed answer arrives, with the two numbers
+     * that tell a slow answer apart from a stuck one: when the first answer text
+     * appeared, and how much has landed since. A model that thinks for two minutes
+     * and one whose reply is simply enormous look identical from the outside — the
+     * panel counts the same seconds either way — and they need opposite fixes.
      */
-    async runTask(value) {
+    async runTask(value, { onProgress } = {}) {
       const request = parseTaskRequest(value);
       if (!await hasProviderAccess(request.provider, permissionsApi)) {
         throw new DirectApiError("MarketFit cannot reach this provider yet. Select the provider again to grant access.", "providerAccessMissing");
       }
       const run = { "openai-api": runOpenAi, "anthropic-api": runAnthropic, "deepseek-api": runDeepSeek }[request.provider];
       if (!run) throw new DirectApiError("This provider is not supported.", "providerUnsupported");
-      const result = await withEmptyOutputRetry(() => run(request, fetchImpl));
+      const result = await withEmptyOutputRetry(() => run(request, fetchImpl, onProgress));
       return {
         requestId: request.requestId,
         status: "completed",
@@ -105,7 +111,7 @@ async function hasProviderAccess(provider, permissionsApi) {
   return permissionsApi.contains({ origins: [origin] });
 }
 
-async function runOpenAi(request, fetchImpl) {
+async function runOpenAi(request, fetchImpl, onProgress) {
   const model = modelConfig("openai-api", request.options.model);
   const payload = await postJson(fetchImpl, OPENAI_URL, {
     headers: { "content-type": "application/json", authorization: `Bearer ${request.credential.apiKey}` },
@@ -118,12 +124,13 @@ async function runOpenAi(request, fetchImpl) {
       text: { format: { type: "json_schema", name: "marketfit_agent_evidence", strict: true, schema: JSON.parse(wireSchemaJson()) } }
     },
     reduceStream: OPENAI_RESPONSES_STREAM,
+    onProgress,
     withoutStructuredOutput: ({ text, ...body }) => body
   });
   return parseAgentEvidence(parseJsonOutput(extractOpenAiJsonPayload(payload)), request);
 }
 
-async function runAnthropic(request, fetchImpl) {
+async function runAnthropic(request, fetchImpl, onProgress) {
   const model = modelConfig("anthropic-api", request.options.model);
   const outputConfig = model.structuredOutputs
     ? { format: { type: "json_schema", schema: JSON.parse(wireSchemaJson()) }, ...(model.effort ? { effort: model.effort } : {}) }
@@ -156,6 +163,7 @@ async function runAnthropic(request, fetchImpl) {
       ...(outputConfig ? { output_config: outputConfig } : {})
     },
     reduceStream: ANTHROPIC_STREAM,
+    onProgress,
     withoutStructuredOutput: ({ output_config: _dropped, ...body }) => body
   });
   return parseAgentEvidence(parseJsonOutput(extractAnthropicJsonPayload(payload)), request);
@@ -167,7 +175,7 @@ async function runAnthropic(request, fetchImpl) {
  * carried by the prompt and enforced afterwards by parseAgentEvidence, which
  * validates every reply anyway regardless of what the provider promised.
  */
-async function runDeepSeek(request, fetchImpl) {
+async function runDeepSeek(request, fetchImpl, onProgress) {
   const model = modelConfig("deepseek-api", request.options.model);
   const payload = await postJson(fetchImpl, DEEPSEEK_URL, {
     headers: { "content-type": "application/json", authorization: `Bearer ${request.credential.apiKey}` },
@@ -188,6 +196,7 @@ async function runDeepSeek(request, fetchImpl) {
       ...(model.jsonObjectMode ? { response_format: { type: "json_object" } } : {})
     },
     reduceStream: CHAT_COMPLETIONS_STREAM,
+    onProgress,
     withoutStructuredOutput: ({ response_format: _dropped, ...body }) => body
   });
   return parseAgentEvidence(parseJsonOutput(extractOpenAiJsonPayload(payload)), request);
@@ -218,12 +227,12 @@ async function withEmptyOutputRetry(run) {
  * provider that will not accept our schema should degrade to prompt-only JSON
  * rather than making the analysis unusable.
  */
-async function postJson(fetchImpl, url, { headers, body, withoutStructuredOutput, reduceStream }) {
+async function postJson(fetchImpl, url, { headers, body, withoutStructuredOutput, reduceStream, onProgress }) {
   try {
-    return await sendJson(fetchImpl, url, headers, body, reduceStream);
+    return await sendJson(fetchImpl, url, headers, body, reduceStream, onProgress);
   } catch (error) {
     if (!(error instanceof StructuredOutputRejected)) throw error;
-    return sendJson(fetchImpl, url, headers, withoutStructuredOutput(body), reduceStream);
+    return sendJson(fetchImpl, url, headers, withoutStructuredOutput(body), reduceStream, onProgress);
   }
 }
 
@@ -246,7 +255,7 @@ const TIMEOUT_MESSAGE = "The selected AI provider did not finish in time. Try a 
  * dropped. A response with no readable body cannot be streamed whatever we asked
  * for, so it falls through to reading the whole thing at once.
  */
-async function sendJson(fetchImpl, url, headers, body, reduceStream) {
+async function sendJson(fetchImpl, url, headers, body, reduceStream, onProgress) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   const wire = reduceStream ? { ...body, stream: true } : body;
@@ -271,7 +280,7 @@ async function sendJson(fetchImpl, url, headers, body, reduceStream) {
     // event had been read — leaving the long request this exists to protect with no
     // deadline at all.
     if (reduceStream && response.ok && typeof response.body?.getReader === "function") {
-      return await readEventStream(response.body, controller, reduceStream);
+      return await readEventStream(response.body, controller, reduceStream, onProgress);
     }
     let payload = null;
     try {
@@ -330,13 +339,15 @@ class StructuredOutputRejected extends Error {}
  * cut every buffered connection off at ninety seconds, making this change a
  * regression for exactly the setups that are already the most fragile.
  */
-async function readEventStream(stream, controller, reducer) {
+async function readEventStream(stream, controller, reducer, onProgress) {
   const reader = stream.getReader();
   const decoder = new TextDecoder();
   const state = { text: "" };
   let buffer = "";
   let events = 0;
   let lastByteAt = 0;
+  let firstTextAt = 0;
+  const openedAt = Date.now();
   const idle = setInterval(() => {
     if (lastByteAt && Date.now() - lastByteAt >= STREAM_IDLE_TIMEOUT_MS) controller.abort();
   }, 1000);
@@ -364,6 +375,13 @@ async function readEventStream(stream, controller, reducer) {
         events += 1;
         reducer.event(state, event);
       }
+      // Answer text, not any traffic. Keep-alive pings and thinking blocks travel on
+      // this same stream and prove only that the connection is alive — which the
+      // idle deadline already covers. The moment worth reporting is the first
+      // character of the answer, because everything before it was the model
+      // thinking, and thinking too long and writing too much are opposite problems.
+      if (!firstTextAt && state.text) firstTextAt = Date.now();
+      onProgress?.({ firstTextMs: firstTextAt ? firstTextAt - openedAt : null, chars: state.text.length });
     }
   } catch (error) {
     if (controller.signal.aborted) throw new DirectApiError(TIMEOUT_MESSAGE, "providerTimeout");
