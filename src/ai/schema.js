@@ -37,23 +37,36 @@ const MAX_REQUEST_LENGTH = 140000;
  * so parseAgentEvidence trims the extras rather than rejecting the whole reply.
  * Rejecting meant a user paid for an analysis and got an error instead.
  */
+/**
+ * How many items each list may carry.
+ *
+ * These are latency, not just taste. Output tokens are generated one after another,
+ * so wall-clock time tracks how much JSON is asked for almost linearly — and the
+ * caps sum to a ceiling that has to stay under the model's output budget, because
+ * an answer that runs out of room is a total loss rather than a shorter answer.
+ * At the previous numbers that sum was roughly twice the budget: nothing enforced
+ * it, so how close a run came to truncating depended on how talkative the model
+ * felt. These lower numbers are also the honest reading length — twelve requirement
+ * rows and five items a list is more than anyone reads while deciding whether to
+ * spend an evening on an application, which is the whole question this answers.
+ */
 export const RESULT_LIMITS = Object.freeze({
-  requirements: 20,
-  strengths: 8,
-  gaps: 8,
-  risks: 8,
+  requirements: 12,
+  strengths: 5,
+  gaps: 5,
+  risks: 5,
   // Deliberately the shortest list here. A CV with six things wrong with it is a
   // different conversation from the one this panel is having, and a long list of
   // them reads as an attack rather than as advice.
-  profileRisks: 5,
-  resumeTailoring: 8,
-  interviewFocus: 8,
-  uncertainties: 8,
-  suggestedActions: 8,
-  statedConditions: 6,
+  profileRisks: 4,
+  resumeTailoring: 5,
+  interviewFocus: 5,
+  uncertainties: 5,
+  suggestedActions: 5,
+  statedConditions: 4,
   evidencePerItem: 4,
   overviewEvidence: 6,
-  screeningTerms: 12
+  screeningTerms: 10
 });
 
 /**
@@ -62,16 +75,24 @@ export const RESULT_LIMITS = Object.freeze({
  * lower, so a reply the schema invited was rejected on arrival and a paid analysis
  * was lost. One table, one ceiling — and outputText trims rather than refuses,
  * because the wire schema cannot carry these limits to the provider at all.
+ *
+ * That last clause is the reason these are backstops and not the real control.
+ * wireSchema strips maxLength before the schema is sent, because structured-output
+ * modes reject it — so the model has never been told any of these numbers, and a
+ * ceiling nobody can see does not shorten anything, it only decides where the text
+ * gets cut. The instruction that does the work is the sentence budget in
+ * buildAnalyzePrompt; these are sized to sit just above it, so a field that keeps
+ * to the budget is never trimmed and only a runaway one is.
  */
 export const FIELD_LIMITS = Object.freeze({
-  headline: 220,
-  rationale: 1200,
-  narrative: 1200,
-  name: 140,
-  question: 360,
+  headline: 180,
+  rationale: 700,
+  narrative: 700,
+  name: 120,
+  question: 300,
   shortLabel: 80,
-  note: 300,
-  prose: 900
+  note: 220,
+  prose: 500
 });
 
 const EFFORT_LEVELS = new Set(["quick", "evening", "multi_day", "not_closable"]);

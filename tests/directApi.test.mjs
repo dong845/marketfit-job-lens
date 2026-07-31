@@ -156,9 +156,9 @@ test("the panel treats a missing result as a failure, not a finished analysis", 
 test("every Anthropic model returns the envelope, on both schema branches", async () => {
   // Claude 5 sends output_config (structured outputs); 4.6 predates it and uses
   // prompt-and-extract. Both must reach the panel through the same envelope.
-  for (const [model, structured, budget] of [
-    ["claude-sonnet-5", true, 24000], ["claude-opus-5", true, 24000],
-    ["claude-sonnet-4-6", false, 16000], ["claude-opus-4-6", false, 16000]
+  for (const [model, structured] of [
+    ["claude-sonnet-5", true], ["claude-opus-5", true],
+    ["claude-sonnet-4-6", false], ["claude-opus-4-6", false]
   ]) {
     const calls = [];
     const client = createDirectApiClient({
@@ -172,11 +172,211 @@ test("every Anthropic model returns the envelope, on both schema branches", asyn
     assert.ok(response.result, `${model}: response.result must carry the analysis`);
     assert.equal(response.provider, "anthropic-api");
     assert.equal(calls[0].model, model);
-    assert.equal(calls[0].max_tokens, budget, `${model}: wrong output budget`);
+    // From the registry, not a literal: the budget and the thinking mode are one
+    // decision — thinking is billed from max_tokens — and a test that pins the
+    // number here would have to be edited every time that decision is revisited.
+    assert.equal(calls[0].max_tokens, MODELS[model].maxOutputTokens, `${model}: wrong output budget`);
     assert.equal(Boolean(calls[0].output_config), structured, `${model}: wrong structured-output branch`);
     assert.match(calls[0].url ?? "https://api.anthropic.com/v1/messages", /anthropic/);
   }
 });
+
+test("Anthropic thinking is stated per model, never inherited from the default", async () => {
+  // The same omission asks for opposite behaviour on the two generations: Claude 5
+  // thinks when `thinking` is absent, 4.6 does not. Leaving it out meant the request
+  // could not be read to find out which, and the thinking Claude 5 silently switched
+  // on is spent from max_tokens — the JSON truncated and the run was billed anyway.
+  const sentFor = async (model) => {
+    let body;
+    const client = createDirectApiClient({
+      permissionsApi: { async contains() { return true; } },
+      fetchImpl: async (url, options) => {
+        body = JSON.parse(options.body);
+        return { ok: true, status: 200, async json() { return { content: [{ type: "text", text: JSON.stringify(validEvidence()) }] }; } };
+      }
+    });
+    await client.runTask(apiRequest("anthropic-api", model));
+    return body;
+  };
+
+  for (const model of ["claude-opus-5", "claude-sonnet-5"]) {
+    assert.deepEqual((await sentFor(model)).thinking, { type: "adaptive" }, `${model} must ask for thinking explicitly`);
+    assert.equal(MODELS[model].thinking, "adaptive", "the registry is where that decision lives");
+  }
+  // 4.6 keeps the default it has always shipped with, and the registry says so by
+  // carrying no thinking key at all rather than by carrying a false one.
+  for (const model of ["claude-opus-4-6", "claude-sonnet-4-6"]) {
+    assert.equal((await sentFor(model)).thinking, undefined, `${model} must not send a thinking mode it has never carried`);
+    assert.equal(MODELS[model].thinking, undefined);
+  }
+});
+
+test("every provider is asked to stream, and a streamed reply parses like a whole one", async () => {
+  // Streaming is not for showing tokens as they arrive: it is so the connection
+  // carries traffic while a two-minute answer is generated. A silent socket holding
+  // a 32,000-token budget open is the shape intermediaries drop, and the drop looked
+  // like a timeout on a run the user had already paid for.
+  const frames = {
+    "anthropic-api": (json) => [
+      'event: message_start\ndata: {"type":"message_start"}',
+      ...chunk(json).map((part) => `event: content_block_delta\ndata: ${JSON.stringify({ type: "content_block_delta", delta: { type: "text_delta", text: part } })}`),
+      'event: message_delta\ndata: {"type":"message_delta","delta":{"stop_reason":"end_turn"}}'
+    ],
+    "openai-api": (json) => [
+      ...chunk(json).map((part) => `data: ${JSON.stringify({ type: "response.output_text.delta", delta: part })}`),
+      'data: {"type":"response.completed","response":{"status":"completed"}}'
+    ],
+    "deepseek-api": (json) => [
+      ...chunk(json).map((part) => `data: ${JSON.stringify({ choices: [{ delta: { content: part } }] })}`),
+      'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}',
+      "data: [DONE]"
+    ]
+  };
+
+  for (const [provider, toFrames] of Object.entries(frames)) {
+    let body;
+    const client = createDirectApiClient({
+      permissionsApi: { async contains() { return true; } },
+      fetchImpl: async (url, options) => {
+        body = JSON.parse(options.body);
+        return { ok: true, status: 200, body: sseBody(toFrames(JSON.stringify(validEvidence()))) };
+      }
+    });
+    const response = await client.runTask(apiRequest(provider, undefined));
+    assert.equal(body.stream, true, `${provider} must ask for a stream`);
+    assert.equal(response.result.requirements[0].name, "Python", `${provider}: a streamed reply must parse like a whole one`);
+  }
+});
+
+test("a streamed reply cut off by the token budget still says so", async () => {
+  // The truncation checks read stop_reason and finish_reason off a whole payload, so
+  // the stream reader has to carry those through. Without it the most expensive
+  // failure — a long answer that ran out of room — would arrive as invalid JSON.
+  const client = createDirectApiClient({
+    permissionsApi: { async contains() { return true; } },
+    fetchImpl: async () => ({
+      ok: true,
+      status: 200,
+      body: sseBody([
+        'data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"{\\"overview\\":"}}',
+        'data: {"type":"message_delta","delta":{"stop_reason":"max_tokens"}}'
+      ])
+    })
+  });
+  await assert.rejects(() => client.runTask(apiRequest("anthropic-api", "claude-opus-5")), /ran out of output space/);
+});
+
+test("a stream carries thinking and JSON on the same wire, and only the JSON is kept", async () => {
+  // Claude 5 thinks by default and its thinking_delta events ride the same stream as
+  // the answer. Folding them in would splice reasoning prose into the middle of the
+  // JSON object, which parses as nothing at all.
+  const json = JSON.stringify(validEvidence());
+  const client = createDirectApiClient({
+    permissionsApi: { async contains() { return true; } },
+    fetchImpl: async () => ({
+      ok: true,
+      status: 200,
+      body: sseBody([
+        'data: {"type":"content_block_delta","delta":{"type":"thinking_delta","thinking":"Let me weigh the C++ requirement..."}}',
+        `data: ${JSON.stringify({ type: "content_block_delta", delta: { type: "text_delta", text: json } })}`,
+        'data: {"type":"message_delta","delta":{"stop_reason":"end_turn"}}'
+      ])
+    })
+  });
+  const { result } = await client.runTask(apiRequest("anthropic-api", "claude-opus-5"));
+  assert.equal(result.requirements[0].name, "Python");
+});
+
+test("an error delivered mid-stream is reported, not read as an empty answer", async () => {
+  // HTTP 200 is already sent by then, so it cannot reach the status handling. Overload
+  // and rate limiting arrive this way on exactly the long requests most likely to hit
+  // them, and without this they surfaced as "the provider returned no text at all".
+  const client = createDirectApiClient({
+    permissionsApi: { async contains() { return true; } },
+    fetchImpl: async () => ({
+      ok: true,
+      status: 200,
+      body: sseBody([
+        'data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"{"}}',
+        'event: error\ndata: {"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}'
+      ])
+    })
+  });
+  await assert.rejects(() => client.runTask(apiRequest("anthropic-api", "claude-sonnet-5")), /Overloaded/);
+});
+
+test("an event split across two network chunks is not lost", async () => {
+  // Chunk boundaries fall wherever TCP puts them, not on event boundaries. Parsing
+  // each chunk on arrival dropped whichever event straddled the seam — a silent hole
+  // in the middle of the JSON rather than an error.
+  const json = JSON.stringify(validEvidence());
+  const frame = `data: ${JSON.stringify({ type: "content_block_delta", delta: { type: "text_delta", text: json } })}\n\n`;
+  const seam = Math.floor(frame.length / 2);
+  const client = createDirectApiClient({
+    permissionsApi: { async contains() { return true; } },
+    fetchImpl: async () => ({
+      ok: true,
+      status: 200,
+      body: rawBody([frame.slice(0, seam), frame.slice(seam), 'data: {"type":"message_delta","delta":{"stop_reason":"end_turn"}}\n\n'])
+    })
+  });
+  const { result } = await client.runTask(apiRequest("anthropic-api", "claude-sonnet-5"));
+  assert.equal(result.requirements[0].name, "Python");
+});
+
+test("a gateway that ignores the stream request is still read", async () => {
+  // Some proxies answer a stream request with one whole JSON body. Left unhandled
+  // that reads as an empty stream, and an empty reply is retried once — so the user
+  // pays twice to be told "the provider returned no text at all", which names
+  // nothing they can act on.
+  const client = createDirectApiClient({
+    permissionsApi: { async contains() { return true; } },
+    fetchImpl: async () => ({
+      ok: true,
+      status: 200,
+      body: rawBody([JSON.stringify({ content: [{ type: "text", text: JSON.stringify(validEvidence()) }] })])
+    })
+  });
+  const { result } = await client.runTask(apiRequest("anthropic-api", "claude-sonnet-5"));
+  assert.equal(result.requirements[0].name, "Python");
+});
+
+test("the idle deadline starts at the first byte, not at the request", () => {
+  // A proxy that buffers the stream sends nothing and then everything. Running the
+  // idle clock from the request would cut those connections off at 90s — making
+  // streaming a regression for exactly the setups that are already most fragile.
+  // Before the first byte, only the absolute ceiling can judge the silence.
+  const source = readFileSync(new URL("../src/ai/directApiClient.js", import.meta.url), "utf8");
+  const read = source.slice(source.indexOf("async function readEventStream"), source.indexOf("function parseEventFrame"));
+  assert.match(read, /let lastByteAt = 0;/, "the clock must start unset, not at Date.now()");
+  assert.match(read, /if \(lastByteAt && Date\.now\(\) - lastByteAt >= STREAM_IDLE_TIMEOUT_MS\)/);
+  assert.match(read, /clearInterval\(idle\)/, "and the watchdog must be cleared however the read ends");
+});
+
+/** Splits a JSON body the way a provider splits it: into many small deltas. */
+function chunk(text, size = 64) {
+  return text.match(new RegExp(`[\\s\\S]{1,${size}}`, "g")) || [];
+}
+
+function sseBody(frames) {
+  return rawBody(frames.map((frame) => `${frame}\n\n`));
+}
+
+/** A minimal ReadableStream stand-in: what response.body exposes to the reader. */
+function rawBody(pieces) {
+  const encoder = new TextEncoder();
+  let index = 0;
+  return {
+    getReader() {
+      return {
+        async read() {
+          if (index >= pieces.length) return { done: true, value: undefined };
+          return { done: false, value: encoder.encode(pieces[index++]) };
+        }
+      };
+    }
+  };
+}
 
 test("a provider that rejects the schema is retried without it rather than failing", async () => {
   let attempts = 0;

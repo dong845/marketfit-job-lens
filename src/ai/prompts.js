@@ -110,6 +110,14 @@ export function buildAnalyzePrompt(request) {
     "For each evidence item, return only an object like {\"ref\":\"JD-004\"} or {\"ref\":\"CV-012\"}. Do not copy evidence text into the output.",
     "Block IDs belong in the evidence arrays and nowhere else. Never write CV-003, JD-007 or any similar token into a headline, rationale, explanation, summary, note or action — the reader never sees the block list, so an ID in a sentence is noise to them. Name the thing itself: \"the posting's sponsorship line\", \"your 2023 C++ port\".",
     `Cover the requirements that matter, up to ${RESULT_LIMITS.requirements}, and up to ${RESULT_LIMITS.strengths} items in each other list. Prefer fewer, well-evidenced items over padding.`,
+    // The schema below cannot carry a length: wireSchema strips maxLength and
+    // maxItems because structured-output modes reject them, so every ceiling in
+    // FIELD_LIMITS is invisible to you and enforced only by trimming on arrival —
+    // which turns a too-long field into a sentence cut in half. This is the only
+    // thing that actually governs how much you write, and how much you write is
+    // most of how long the reader waits: the JSON is generated one token after
+    // another, so a reply twice as long takes twice as long to arrive.
+    "Budget the length of every field. One-line fields are one sentence: recommendation.headline, effortNote, decisiveFactor, every note, a requirement name, an uncertainty type, a screening term. Two sentences at most for an explanation, a summary, howToClose, howToAddress, a recommendation, an action, a rationale inside a list item. Three at most for the overview fields and recommendation.rationale. A field that runs longer is not more thorough — past the second sentence it is almost always the same finding stated again, and the reader stops before reaching whatever came after it.",
     "Return the JSON object only.",
     // Carried in the prompt for every provider, not just the ones whose request
     // cannot hold it. Four of the selectable models have no structured-output mode,

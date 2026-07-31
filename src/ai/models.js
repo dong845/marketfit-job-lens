@@ -13,18 +13,33 @@
  * capped response is a hard error that returns nothing for a call the user paid
  * for. Reasoning models spend part of this budget on thinking before writing a
  * single character of JSON, so they get the most headroom.
+ *
+ * The Claude 5 pair carry the largest budget for that reason and no other: they
+ * think by default, that thinking is billed against this same ceiling, and the
+ * failure it produces is a truncated JSON object — a run charged in full that
+ * renders nothing. Raising a ceiling costs nothing when it is not reached, and
+ * the request is streamed, so a longer answer no longer risks the deadline.
  */
 /**
  * typicalSeconds is a rough starting estimate only, replaced by the duration this
  * machine actually measured for that model on its first successful run. It is a
  * progress hint, never presented as a measurement we have made.
  */
+/**
+ * `thinking` is stated per model rather than left to the provider's default,
+ * because the default reverses between generations and the reversal is silent.
+ * Omitting the field means adaptive thinking on Claude 5 and no thinking on 4.6 —
+ * so the same request body asked one pair of models to think and the other not to,
+ * and nothing in the code said so. Thinking tokens are also spent from the same
+ * `max_tokens` as the JSON, which is how a budget that fit 4.6 truncated on 5.
+ */
 export const MODELS = Object.freeze({
   "claude-opus-5": {
     typicalSeconds: 90,
     provider: "anthropic-api",
     labelKey: "anthropicOpus5",
-    maxOutputTokens: 24000,
+    maxOutputTokens: 32000,
+    thinking: "adaptive",
     structuredOutputs: true,
     effort: "medium"
   },
@@ -32,12 +47,19 @@ export const MODELS = Object.freeze({
     typicalSeconds: 55,
     provider: "anthropic-api",
     labelKey: "anthropicSonnet5",
-    maxOutputTokens: 24000,
+    maxOutputTokens: 32000,
+    thinking: "adaptive",
     structuredOutputs: true,
     effort: "medium"
   },
   // Retained as the lower-cost option. 4.6 predates Anthropic structured
   // outputs, so it keeps the prompt-and-extract path.
+  //
+  // No `thinking` key: on 4.6 an omitted field already means no thinking, and that
+  // is the behaviour these two have shipped with. Sending {type:"disabled"} would
+  // say the same thing, but it is a parameter this path has never carried and a
+  // rejection here costs a run rather than degrading — so the default stays, named
+  // in this comment rather than in the request.
   "claude-opus-4-6": {
     typicalSeconds: 60,
     provider: "anthropic-api",
