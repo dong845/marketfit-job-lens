@@ -518,17 +518,29 @@ test("no model's output budget is smaller than the longest answer the schema all
 test("an answer cut off partway says so, instead of blaming the model", () => {
   // These are different failures with different fixes, and collapsing them sent
   // people to try another model for something no model would have fixed.
-  assert.throws(
-    () => parseJsonOutput('{"overview":{"jobFocus":"the role foc'),
-    (error) => error.code === "OUTPUT_TRUNCATED"
-  );
-  assert.throws(
-    () => parseJsonOutput('{"overview":{"jobFocus":'),
-    (error) => error.code === "OUTPUT_TRUNCATED"
-  );
-  // Genuinely not JSON is still the untrusted-output case.
-  assert.throws(
-    () => parseJsonOutput("I am unable to analyse this posting."),
-    (error) => error.code === "OUTPUT_UNTRUSTED"
-  );
+  //
+  // The cases below are the reason this reads the error's POSITION rather than its
+  // wording: the same cut-off object reports "Unterminated string", "Unexpected end
+  // of JSON input" or "Expected ',' or '}'" depending only on which byte it stopped
+  // after. Matching the sentence caught the first two shapes and missed the rest.
+  const truncated = {
+    "mid-string": '{"overview":{"jobFocus":"the role foc',
+    "after a key": '{"overview":{"jobFocus":',
+    "after an inner object closed": '{"overview":{"jobFocus":"x"}, "requirements":[{"name":"y"',
+    "inside an array": '{"a":1,"requirements":[{"name":"P"},{"name":',
+    "inside an unclosed fence": '```json\n{"overview":{"jobFocus":"x"'
+  };
+  for (const [shape, text] of Object.entries(truncated)) {
+    assert.throws(() => parseJsonOutput(text), (error) => error.code === "OUTPUT_TRUNCATED", `cut ${shape}`);
+  }
+
+  // Not JSON at all, and JSON that is malformed in the middle rather than at the
+  // end, both remain the untrusted-output case: those are not size problems and
+  // must not tell the reader to shorten the posting.
+  for (const text of ["I am unable to analyse this posting.", '{"a":,"b":2}']) {
+    assert.throws(() => parseJsonOutput(text), (error) => error.code === "OUTPUT_UNTRUSTED", text.slice(0, 20));
+  }
+
+  // Prose around a complete object is still recovered rather than failed.
+  assert.deepEqual(parseJsonOutput('Here is the analysis:\n{"a":1}'), { a: 1 });
 });

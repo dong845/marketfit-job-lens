@@ -580,11 +580,27 @@ export function parseJsonOutput(value) {
   try {
     return JSON.parse(textValue);
   } catch (error) {
-    if (/end of (?:JSON )?input|Unterminated/i.test(String(error?.message))) {
+    if (ranOffTheEnd(textValue, String(error?.message || ""))) {
       throw new BridgeError("OUTPUT_TRUNCATED", "The AI provider ran out of output space before finishing. Try a shorter job description, or switch to another model.");
     }
     throw new BridgeError("OUTPUT_UNTRUSTED", "Provider did not return valid JSON.");
   }
+}
+
+/**
+ * Did the parse fail because the text stopped, or because it was never JSON?
+ *
+ * Matching the wording of the failure is the obvious approach and it is wrong: the
+ * same cut-off object reports "Unterminated string", "Unexpected end of JSON input"
+ * or "Expected ',' or '}'" depending only on which byte it happened to stop after.
+ * The reliable signal is not the words but the place — a truncated document fails at
+ * the very end of what arrived, while prose fails at its first character. So this
+ * compares the reported position against the length instead of reading the sentence.
+ */
+function ranOffTheEnd(text, message) {
+  if (/end of (?:JSON )?input/i.test(message)) return true;
+  const position = /at position (\d+)/i.exec(message);
+  return Boolean(position) && Number(position[1]) >= text.length;
 }
 
 export function extractJsonText(value) {

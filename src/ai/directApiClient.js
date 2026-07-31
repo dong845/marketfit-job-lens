@@ -357,6 +357,20 @@ async function readEventStream(stream, controller, reducer, onProgress) {
     events += 1;
     reducer.event(state, event);
   };
+  // Answer text, not any traffic. Keep-alive pings and thinking blocks travel on this
+  // same stream and prove only that the connection is alive, which the idle deadline
+  // already covers. The moment worth reporting is the first character of the answer,
+  // because everything before it was the model thinking, and thinking too long and
+  // writing too much are opposite problems.
+  //
+  // Called after the flush as well as after each chunk: a reply small enough to
+  // arrive in one chunk with no trailing blank line produced no complete frame on
+  // the only pass through the loop, so the panel was told "no answer text yet" and
+  // then never told anything else — a finished run still reading as thinking.
+  const reportProgress = () => {
+    if (!firstTextAt && state.text) firstTextAt = Date.now();
+    onProgress?.({ firstTextMs: firstTextAt ? firstTextAt - openedAt : null, chars: state.text.length });
+  };
   try {
     for (;;) {
       const { done, value } = await reader.read();
@@ -371,6 +385,7 @@ async function readEventStream(stream, controller, reducer, onProgress) {
         // last event is what SSE asks for, not what every sender does.
         buffer += decoder.decode();
         handleFrame(buffer);
+        reportProgress();
         break;
       }
       lastByteAt = Date.now();
@@ -388,13 +403,7 @@ async function readEventStream(stream, controller, reducer, onProgress) {
       const frames = buffer.split(/\r\n\r\n|\n\n|\r\r/);
       buffer = frames.pop() ?? "";
       frames.forEach(handleFrame);
-      // Answer text, not any traffic. Keep-alive pings and thinking blocks travel on
-      // this same stream and prove only that the connection is alive — which the
-      // idle deadline already covers. The moment worth reporting is the first
-      // character of the answer, because everything before it was the model
-      // thinking, and thinking too long and writing too much are opposite problems.
-      if (!firstTextAt && state.text) firstTextAt = Date.now();
-      onProgress?.({ firstTextMs: firstTextAt ? firstTextAt - openedAt : null, chars: state.text.length });
+      reportProgress();
     }
   } catch (error) {
     if (controller.signal.aborted) throw new DirectApiError(TIMEOUT_MESSAGE, "providerTimeout");

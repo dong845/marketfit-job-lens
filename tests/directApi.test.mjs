@@ -361,6 +361,27 @@ test("progress separates the time spent thinking from the time spent writing", a
   assert.deepEqual([...new Set(writing.map((update) => update.firstTextMs))].length, 1, "the start time is measured once");
 });
 
+test("progress is reported even when the whole answer lands in one final frame", async () => {
+  // One chunk, no trailing blank line: the only pass through the loop produced no
+  // complete frame, so the panel was told "no answer text yet" and then never told
+  // anything again — a finished run still reading as thinking.
+  const updates = [];
+  const client = createDirectApiClient({
+    permissionsApi: { async contains() { return true; } },
+    fetchImpl: async () => ({
+      ok: true,
+      status: 200,
+      body: rawBody([`data: ${JSON.stringify({ type: "content_block_delta", delta: { type: "text_delta", text: JSON.stringify(validEvidence()) } })}`])
+    })
+  });
+  const { result } = await client.runTask(apiRequest("anthropic-api", "claude-sonnet-4-6"), {
+    onProgress: (update) => updates.push(update)
+  });
+  assert.equal(result.requirements[0].name, "Python");
+  assert.ok(updates.at(-1).firstTextMs !== null, "the answer must be reported as having started");
+  assert.ok(updates.at(-1).chars > 0, "and its size reported");
+});
+
 test("progress is optional, and a caller that wants none still gets its analysis", async () => {
   const client = createDirectApiClient({
     permissionsApi: { async contains() { return true; } },
