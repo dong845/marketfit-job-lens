@@ -324,6 +324,53 @@ test("an event split across two network chunks is not lost", async () => {
   assert.equal(result.requirements[0].name, "Python");
 });
 
+test("a CRLF stream is read, and does not silently cost a second generation", async () => {
+  // Line terminators in server-sent events may be CRLF, LF or CR, and the sender
+  // picks. Splitting on "\n\n" alone found no event boundary at all in a CRLF
+  // stream — "\r\n\r\n" holds no two consecutive newlines — so every event piled up
+  // unparsed, the reply came back empty, and an empty reply is retried: the user
+  // waited through two full generations to be told nothing arrived.
+  const json = JSON.stringify(validEvidence());
+  let attempts = 0;
+  const client = createDirectApiClient({
+    permissionsApi: { async contains() { return true; } },
+    fetchImpl: async () => {
+      attempts += 1;
+      return {
+        ok: true,
+        status: 200,
+        body: rawBody([
+          `event: content_block_delta\r\ndata: ${JSON.stringify({ type: "content_block_delta", delta: { type: "text_delta", text: json } })}\r\n\r\n`,
+          'event: message_delta\r\ndata: {"type":"message_delta","delta":{"stop_reason":"end_turn"}}\r\n\r\n'
+        ])
+      };
+    }
+  });
+  const { result } = await client.runTask(apiRequest("anthropic-api", "claude-sonnet-5"));
+  assert.equal(result.requirements[0].name, "Python");
+  assert.equal(attempts, 1, "and it must not have taken a second run to get there");
+});
+
+test("a stream shape we cannot read fails once, instead of being retried", async () => {
+  // A reply that genuinely says nothing still arrives as events, so parsing none of
+  // them means the format beat the reader — our bug, not the provider's. Reported as
+  // emptiness it would be retried, and the retry reads the same unreadable format:
+  // two full generations, two charges, and an error naming neither cause.
+  let attempts = 0;
+  const client = createDirectApiClient({
+    permissionsApi: { async contains() { return true; } },
+    fetchImpl: async () => {
+      attempts += 1;
+      return { ok: true, status: 200, body: rawBody(["<html>a proxy said something else entirely</html>"]) };
+    }
+  });
+  await assert.rejects(
+    () => client.runTask(apiRequest("anthropic-api", "claude-sonnet-5")),
+    (error) => error.code === "providerStreamUnreadable"
+  );
+  assert.equal(attempts, 1, "one run, not two");
+});
+
 test("a gateway that ignores the stream request is still read", async () => {
   // Some proxies answer a stream request with one whole JSON body. Left unhandled
   // that reads as an empty stream, and an empty reply is retried once — so the user

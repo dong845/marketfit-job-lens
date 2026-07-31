@@ -346,9 +346,17 @@ async function readEventStream(stream, controller, reducer) {
       if (done) break;
       lastByteAt = Date.now();
       buffer += decoder.decode(value, { stream: true });
-      // Events are separated by a blank line. The trailing piece is whatever the
-      // last chunk cut in half, so it is held back rather than parsed as garbage.
-      const frames = buffer.split("\n\n");
+      // Events are separated by a blank line, and a line ends with CRLF, LF or CR —
+      // all three are legal and the sender chooses. Splitting on "\n\n" alone found
+      // no boundary at all in a CRLF stream, because "\r\n\r\n" contains no two
+      // consecutive newlines: every event accumulated here unparsed, the reply came
+      // back empty, and an empty reply is retried — so the user waited through two
+      // full generations to be told nothing had arrived.
+      //
+      // Splitting the accumulated buffer rather than each chunk is what makes this
+      // safe across a chunk boundary: a chunk ending mid-terminator simply does not
+      // match yet, and the trailing piece is held back until the rest of it lands.
+      const frames = buffer.split(/\r\n\r\n|\n\n|\r\r/);
       buffer = frames.pop() ?? "";
       for (const frame of frames) {
         const event = parseEventFrame(frame);
@@ -383,8 +391,19 @@ async function readEventStream(stream, controller, reducer) {
     try {
       return JSON.parse(buffer);
     } catch {
-      /* Not JSON either. Let the reducer report the emptiness it actually found. */
+      /* Not JSON either — so this is a format we failed to read. See below. */
     }
+    // Zero events is our failure, not the provider's. A reply that genuinely says
+    // nothing still arrives as events; parsing none of them means the stream was in
+    // a shape this reader does not handle. That has to be its own error rather than
+    // an empty result, because an empty result is retried once — and the retry reads
+    // the same unreadable format, so the user pays for and waits through a second
+    // full generation to be told the same thing. Failing here costs one run and
+    // names the cause; falling through cost two and named nothing.
+    throw new DirectApiError(
+      "MarketFit could not read the streamed response from this provider.",
+      "providerStreamUnreadable"
+    );
   }
   return reducer.finish(state);
 }
@@ -392,7 +411,7 @@ async function readEventStream(stream, controller, reducer) {
 /** The `data:` payload of one event, or null for keep-alives and end sentinels. */
 function parseEventFrame(frame) {
   const data = frame
-    .split("\n")
+    .split(/\r\n|\n|\r/)
     .filter((line) => line.startsWith("data:"))
     .map((line) => line.slice(5).trim())
     .join("");
