@@ -1,6 +1,6 @@
 {
   "name": "marketfit-job-lens",
-  "version": "0.7.27",
+  "version": "0.7.28",
   "private": true,
   "type": "module",
   "description": "Chrome side-panel extension that analyses the current job page against your CV.",
