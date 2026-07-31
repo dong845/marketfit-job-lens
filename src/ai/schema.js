@@ -649,21 +649,93 @@ function ranOffTheEnd(text, message) {
   return Boolean(position) && Number(position[1]) >= text.length;
 }
 
+/**
+ * The analysis object, pulled out of whatever the model wrapped it in.
+ *
+ * This used to take everything between the first "{" and the last "}". That works
+ * until a brace appears in the prose around the JSON — and then it silently widens
+ * the slice to include the prose, which parses as nothing. Four shapes a real reply
+ * takes all broke on it: a closing note mentioning "{quick, evening, multi_day}", a
+ * preamble promising "an object like {...}", a fenced block followed by a sentence
+ * containing a brace, and two fenced blocks where the second is an example.
+ *
+ * It matters because nothing else is holding the model to the format. Both remaining
+ * Anthropic models predate structured outputs, so the shape comes from the prompt —
+ * and the prompt itself shows braces, in the evidence example and in every enum it
+ * lists, which is an invitation to write one in a sentence.
+ *
+ * So the braces are matched rather than counted: scan from each "{" tracking depth
+ * and ignoring anything inside a JSON string. Which balanced object to then take is
+ * the part that is easy to get wrong — "the first one that parses" picks the model's
+ * own example out of its preamble, and "the longest one" happily returns an inner
+ * fragment of a reply that was cut off, hiding a truncation behind a nonsense object.
+ * So the candidates are matched against the section names this schema actually asks
+ * for. Nothing else identifies the analysis; length and position both lie.
+ */
 export function extractJsonText(value) {
   const text = String(value || "").trim();
   if (!text) throw new BridgeError("OUTPUT_EMPTY", "Provider returned no text at all.");
-  if (text.startsWith("```")) {
-    const stripped = text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
-    if (stripped.startsWith("{")) return stripped;
+  const fenced = text.startsWith("```")
+    ? text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim()
+    : text;
+  const start = fenced.indexOf("{");
+  const candidates = balancedObjects(fenced);
+
+  // The analysis is the object carrying this schema's own section names. An example
+  // in a preamble and a stray fragment never do, whatever their size or position.
+  const sections = new Set(AGENT_EVIDENCE_SCHEMA.required);
+  let best = "";
+  for (const { text: candidate } of candidates) {
+    let parsed;
+    try {
+      parsed = JSON.parse(candidate);
+    } catch {
+      continue;
+    }
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) continue;
+    if (Object.keys(parsed).some((key) => sections.has(key))) return candidate;
+    if (candidate.length > best.length) best = candidate;
   }
-  // Take the outermost braces even when the text already starts with one: returning
-  // early there handled a model that talks before the JSON but not one that talks
-  // after it, which is the more common habit on the models with no structured-output
-  // mode to hold them to it.
-  const start = text.indexOf("{");
-  const end = text.lastIndexOf("}");
-  if (start >= 0 && end > start) return text.slice(start, end + 1);
-  return text;
+
+  // Nothing recognisable. If the object opened at the first brace never closed, the
+  // reply was cut off — hand back the unclosed remainder so parseJsonOutput sees a
+  // failure at the end of the input and says "ran out of room" rather than blaming
+  // the model. Otherwise return the largest complete object there was: it parses,
+  // and failing it against the schema names the real problem better than this can.
+  const firstClosed = candidates.some((candidate) => candidate.start === start);
+  if (start >= 0 && !firstClosed) return fenced.slice(start);
+  return best || (start >= 0 ? fenced.slice(start) : fenced);
+}
+
+/**
+ * Each balanced {...} in the text, with where it started, in the order they start.
+ *
+ * String-aware, because a brace inside a JSON string value — a quoted requirement
+ * name, a snippet of the posting — is not structure and must not close anything.
+ * Bounded, because this walks forward from every opening brace and a long reply
+ * about a long posting has many; the real object is the first or second, never the
+ * fortieth.
+ */
+function balancedObjects(text, maxStarts = 40) {
+  const found = [];
+  let starts = 0;
+  for (let i = 0; i < text.length && starts < maxStarts; i += 1) {
+    if (text[i] !== "{") continue;
+    starts += 1;
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+    for (let j = i; j < text.length; j += 1) {
+      const character = text[j];
+      if (escaped) { escaped = false; continue; }
+      if (character === "\\") { escaped = inString; continue; }
+      if (character === "\"") { inString = !inString; continue; }
+      if (inString) continue;
+      if (character === "{") depth += 1;
+      else if (character === "}" && --depth === 0) { found.push({ start: i, text: text.slice(i, j + 1) }); break; }
+    }
+  }
+  return found;
 }
 
 function parseRecommendation(value) {

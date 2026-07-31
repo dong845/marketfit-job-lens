@@ -603,3 +603,41 @@ test("a reply that is broken all the way through is still refused", () => {
   evidence.profileRisks = [];
   assert.throws(() => parseAgentEvidence(evidence, apiRequest()), (error) => error.code === "OUTPUT_NO_FINDINGS");
 });
+
+test("the analysis is found whatever the model wrapped it in", () => {
+  // Both remaining Anthropic models predate structured outputs, so the shape comes
+  // from the prompt — and the prompt shows braces, in the evidence example and in
+  // every enum it lists, which invites the model to write one in a sentence. Taking
+  // everything between the first "{" and the last "}" then widens the slice to
+  // swallow that prose, and the whole reply parses as nothing. Every shape below is
+  // a real habit of a model with nothing enforcing the format, and each one used to
+  // reach the user as "the AI replied, but not with a usable analysis".
+  const real = JSON.stringify({ recommendation: { verdict: "stretch" }, requirements: [], overview: {} });
+  const wrapped = {
+    "a closing note that contains a brace": `${real}\n\nNote: effort is one of {quick, evening, multi_day}.`,
+    "a preamble promising an example": `I will return an object like {"verdict": "..."} below.\n\n${real}`,
+    "a fenced block followed by prose": "```json\n" + real + "\n```\n\nThat covers the {required} items.",
+    "a second, smaller example block": "```json\n" + real + "\n```\n\nShorter form:\n```json\n{\"a\":1}\n```",
+    "no wrapper at all": real
+  };
+  for (const [shape, text] of Object.entries(wrapped)) {
+    const parsed = parseJsonOutput(text);
+    assert.ok(parsed.recommendation, `${shape}: the analysis must be the object that comes back`);
+    assert.ok("requirements" in parsed, `${shape}: and not the model's example`);
+  }
+
+  // A brace inside a string value is content, not structure, and must not close it.
+  assert.equal(parseJsonOutput(JSON.stringify({ overview: { jobFocus: "Use the {city} placeholder }" } })).overview.jobFocus,
+    "Use the {city} placeholder }");
+
+  // Matching braces must not hide a truncation: a cut-off reply still contains
+  // balanced inner fragments, and returning one of those would report a nonsense
+  // object as the analysis instead of saying the answer ran out of room.
+  for (const cut of [real.slice(0, -14), `Here it is:\n${real.slice(0, -14)}`]) {
+    assert.throws(() => parseJsonOutput(cut), (error) => error.code === "OUTPUT_TRUNCATED");
+  }
+
+  // And a reply that is complete but the wrong shape still parses, so it fails
+  // against the schema — which names the problem better than the extractor can.
+  assert.deepEqual(parseJsonOutput(JSON.stringify({ foo: 1 })), { foo: 1 });
+});
