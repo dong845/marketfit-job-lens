@@ -519,14 +519,58 @@ export function parseAgentEvidence(value, request) {
   const interviewFocus = list(result.interviewFocus);
   const uncertainties = list(result.uncertainties);
   const suggestedActions = list(result.suggestedActions);
-  if (![requirements, strengths, gaps, risks, profileRisks, resumeTailoring, interviewFocus, uncertainties, suggestedActions].some((items) => items.length)) {
-    invalid("Provider returned an analysis with no findings of any kind.");
-  }
   // Trim rather than reject: an over-long list is verbosity, and discarding a
   // paid analysis over it is worse than showing the first N items. Providers are
   // told the caps via the schema, but strict/structured modes drop the keyword
   // that carries them, so the ceiling has to be enforced here too.
   const trim = (items, key) => items.slice(0, RESULT_LIMITS[key]);
+  /**
+   * One malformed item costs that item, never the analysis.
+   *
+   * This is the rule parseStatedConditions and parseProfileRisks already followed,
+   * for a reason that was never specific to them: a model that malforms one entry
+   * has still produced the rest of a paid analysis. Everywhere else a bare .map()
+   * meant the opposite — one missing summary, one empty title, one classification
+   * worded slightly off, anywhere in thirteen sections, and the whole reply was
+   * thrown away as "not a usable analysis".
+   *
+   * It matters more now than when those lists were written. Both remaining
+   * Anthropic models predate structured outputs, so nothing but the prompt keeps a
+   * field present and its value in range, and a full answer offers dozens of
+   * chances to slip. The strict branch was not a trust boundary — a wrong word is
+   * a verbose model, not a hostile one — it was a way to lose paid work.
+   */
+  const perItem = (items, key, parse) => trim(items, key).flatMap((item) => {
+    try {
+      const parsed = parse(item);
+      return parsed ? [parsed] : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const parsed = {
+    requirements: perItem(requirements, "requirements", (item) => parseRequirement(item, request)),
+    strengths: perItem(strengths, "strengths", (item) => parseCitedItem(item, request, "strength")),
+    gaps: perItem(gaps, "gaps", (item) => parseSeverityItem(item, request, "gap")),
+    risks: perItem(risks, "risks", (item) => parseSeverityItem(item, request, "risk")),
+    profileRisks: parseProfileRisks(profileRisks, request),
+    resumeTailoring: perItem(resumeTailoring, "resumeTailoring", (item) => parseTailoringItem(item, request)),
+    interviewFocus: perItem(interviewFocus, "interviewFocus", (item) => parseInterviewItem(item, request)),
+    uncertainties: perItem(uncertainties, "uncertainties", (item) => parseUncertainty(item, request)),
+    suggestedActions: perItem(suggestedActions, "suggestedActions", (item) => parseAction(item, request))
+  };
+  // Checked on what survived, not on what arrived. Run before parsing, this passed
+  // for a reply whose every item was then dropped, and the panel rendered a page of
+  // empty sections as though that were the answer.
+  if (!Object.values(parsed).some((items) => items.length)) {
+    // Its own code, not the generic one. "Nothing survived validation" and "that was
+    // not JSON" are different problems with different next steps, and sharing a
+    // sentence between them is why three rounds of this were spent guessing which
+    // one was happening. The reader cannot act on either, but the person they report
+    // it to can.
+    throw new BridgeError("OUTPUT_NO_FINDINGS", "Provider returned an analysis with no usable findings in any section.");
+  }
 
   return {
     // Optional at parse time even though the schema asks for it: a model that
@@ -541,26 +585,28 @@ export function parseAgentEvidence(value, request) {
       levelComparison: parseLevelComparison(overview.levelComparison),
       evidence: parseEvidenceList(overview.evidence, request, "overview.evidence", RESULT_LIMITS.overviewEvidence)
     },
-    requirements: trim(requirements, "requirements").map((item) => parseRequirement(item, request)),
+    requirements: parsed.requirements,
     screening: parseScreening(result.screening, request),
-    strengths: trim(strengths, "strengths").map((item) => parseCitedItem(item, request, "strength")),
-    gaps: trim(gaps, "gaps").map((item) => parseSeverityItem(item, request, "gap")),
-    risks: trim(risks, "risks").map((item) => parseSeverityItem(item, request, "risk")),
-    profileRisks: parseProfileRisks(profileRisks, request),
-    resumeTailoring: trim(resumeTailoring, "resumeTailoring").map((item) => parseTailoringItem(item, request)),
-    interviewFocus: trim(interviewFocus, "interviewFocus").map((item) => parseInterviewItem(item, request)),
-    uncertainties: trim(uncertainties, "uncertainties").map((item) => {
-      const uncertainty = object(item, "Each uncertainty must be an object.");
-      return {
-        type: outputText(uncertainty.type, "uncertainty.type", FIELD_LIMITS.shortLabel),
-        // Defaults to the employer: a question wrongly filed there is merely one you
-        // need not send, while a CV gap hidden under "ask them" is never acted on.
-        answeredBy: ANSWERED_BY.has(uncertainty.answeredBy) ? uncertainty.answeredBy : "employer",
-        message: outputText(uncertainty.message, "uncertainty.message", FIELD_LIMITS.prose),
-        evidence: parseEvidenceList(uncertainty.evidence, request, "uncertainty.evidence", RESULT_LIMITS.evidencePerItem)
-      };
-    }),
-    suggestedActions: trim(suggestedActions, "suggestedActions").map((item) => parseAction(item, request))
+    strengths: parsed.strengths,
+    gaps: parsed.gaps,
+    risks: parsed.risks,
+    profileRisks: parsed.profileRisks,
+    resumeTailoring: parsed.resumeTailoring,
+    interviewFocus: parsed.interviewFocus,
+    uncertainties: parsed.uncertainties,
+    suggestedActions: parsed.suggestedActions
+  };
+}
+
+function parseUncertainty(value, request) {
+  const uncertainty = object(value, "Each uncertainty must be an object.");
+  return {
+    type: outputText(uncertainty.type, "uncertainty.type", FIELD_LIMITS.shortLabel),
+    // Defaults to the employer: a question wrongly filed there is merely one you
+    // need not send, while a CV gap hidden under "ask them" is never acted on.
+    answeredBy: ANSWERED_BY.has(uncertainty.answeredBy) ? uncertainty.answeredBy : "employer",
+    message: outputText(uncertainty.message, "uncertainty.message", FIELD_LIMITS.prose),
+    evidence: parseEvidenceList(uncertainty.evidence, request, "uncertainty.evidence", RESULT_LIMITS.evidencePerItem)
   };
 }
 
@@ -743,7 +789,17 @@ function parseRequirement(value, request) {
   const requirement = object(value, "Each requirement must be an object.");
   const level = text(requirement.level, "requirement.level", 20);
   const match = text(requirement.match, "requirement.match", 20);
-  if (!REQUIREMENT_LEVELS.has(level) || !MATCH_STATES.has(match)) throw new BridgeError("OUTPUT_UNTRUSTED", "Provider returned an invalid requirement state.");
+  // Drop this row, not the analysis. Two lines below, `screening` and `recency` are
+  // tolerated when unrecognised for a stated reason — rejecting would discard a paid
+  // call — and these two sat under the opposite rule in the same function: one word
+  // out of range in one row of twelve threw the whole reply away. Nothing but the
+  // prompt holds a model to these values once no selectable model has a
+  // structured-output mode, so the strict branch was certain to fire eventually.
+  // Substituting a value instead of dropping would be worse than losing the row:
+  // "unclear" and "no_evidence" are findings about the posting and the CV, and
+  // writing one in because we did not recognise a word puts a claim we invented into
+  // the model's mouth.
+  if (!REQUIREMENT_LEVELS.has(level) || !MATCH_STATES.has(match)) return null;
   // Tolerated rather than required: a model that omits the newer axes has still
   // produced a usable comparison, and rejecting it would discard a paid call.
   const screening = SCREENING_ROLES.has(requirement.screening) ? requirement.screening : null;
@@ -771,7 +827,8 @@ function parseCitedItem(value, request, label) {
 function parseSeverityItem(value, request, label) {
   const item = object(value, `Each ${label} must be an object.`);
   const severity = text(item.severity, `${label}.severity`, 20);
-  if (!GAP_SEVERITIES.has(severity)) throw new BridgeError("OUTPUT_UNTRUSTED", `Provider returned an invalid ${label} severity.`);
+  // Same rule as a requirement: lose the item, keep the analysis.
+  if (!GAP_SEVERITIES.has(severity)) return null;
   return {
     title: outputText(item.title, `${label}.title`, FIELD_LIMITS.name),
     severity,
@@ -803,7 +860,8 @@ function parseInterviewItem(value, request) {
 function parseAction(value, request) {
   const item = object(value, "Each suggested action must be an object.");
   const priority = text(item.priority, "suggestedActions.priority", 30);
-  if (!ACTION_PRIORITIES.has(priority)) throw new BridgeError("OUTPUT_UNTRUSTED", "Provider returned an invalid action priority.");
+  // Same rule as a requirement: lose the action, keep the analysis.
+  if (!ACTION_PRIORITIES.has(priority)) return null;
   return {
     action: outputText(item.action, "suggestedActions.action", FIELD_LIMITS.prose),
     priority,
@@ -930,6 +988,3 @@ function arrayOfText(value, label, maxItems, maxLength) {
   return value.map((item) => text(item, label, maxLength));
 }
 
-function invalid(message) {
-  throw new BridgeError("OUTPUT_UNTRUSTED", message);
-}

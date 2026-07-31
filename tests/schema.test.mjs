@@ -151,9 +151,16 @@ test("an over-long string is trimmed to the cap, not thrown away with the analys
   const parsed = parseAgentEvidence(evidence, apiRequest());
   assert.equal(parsed.requirements[0].explanation.length, FIELD_LIMITS.prose);
   assert.equal(parsed.overview.fitNarrative.length, FIELD_LIMITS.narrative);
-  // An empty or missing string is still a real error, not something to invent.
+
+  // An empty string is still never filled in — but it costs the row that carries it,
+  // not the analysis. This used to throw, which is the same trade the list caps and
+  // the length caps were already fixed for: one bad field somewhere in thirteen
+  // sections discarded a call the user had paid for.
   evidence.requirements[0].explanation = "";
-  assert.throws(() => parseAgentEvidence(evidence, apiRequest()), BridgeError);
+  const survived = parseAgentEvidence(evidence, apiRequest());
+  assert.equal(survived.requirements.length, 0, "the unusable row is dropped");
+  assert.ok(survived.strengths.length, "and everything else is still delivered");
+  assert.equal(survived.overview.fitNarrative.length, FIELD_LIMITS.narrative);
 });
 
 test("an empty evidence array is accepted, exactly like one full of unresolvable refs", () => {
@@ -237,10 +244,12 @@ test("one omitted list does not throw away the whole analysis", () => {
   assert.deepEqual(parsed.risks, []);
   assert.deepEqual(parsed.suggestedActions, []);
 
-  // But an answer with nothing in any list is a failure, not an empty analysis.
+  // But an answer with nothing in any list is a failure, not an empty analysis — and
+  // it says so under its own code, because "nothing usable came back" and "that was
+  // not JSON" are different problems that shared one sentence for too long.
   const hollow = validEvidence();
   for (const key of ["requirements", "strengths", "gaps", "risks", "resumeTailoring", "interviewFocus", "uncertainties", "suggestedActions"]) hollow[key] = [];
-  assert.throws(() => parseAgentEvidence(hollow, apiRequest()), (error) => error.code === "OUTPUT_UNTRUSTED");
+  assert.throws(() => parseAgentEvidence(hollow, apiRequest()), (error) => error.code === "OUTPUT_NO_FINDINGS");
 });
 
 test("effort is defined by the kind of work, not by a duration guess", async () => {
@@ -543,4 +552,54 @@ test("an answer cut off partway says so, instead of blaming the model", () => {
 
   // Prose around a complete object is still recovered rather than failed.
   assert.deepEqual(parseJsonOutput('Here is the analysis:\n{"a":1}'), { a: 1 });
+});
+
+test("one malformed item costs that item, never the whole analysis", () => {
+  // The failure users actually hit: "the AI replied, but not with a usable
+  // analysis". Both remaining Anthropic models predate structured outputs, so
+  // nothing but the prompt keeps a field present and its value in range, and a full
+  // answer offers dozens of chances to slip. Every one of these used to discard a
+  // paid call outright.
+  const cases = {
+    "a requirement classified with a word we do not know":
+      (e) => { e.requirements.push({ ...e.requirements[0], name: "C++", match: "none" }); },
+    "a requirement missing its level":
+      (e) => { const { level, ...rest } = e.requirements[0]; e.requirements.push({ ...rest, name: "Docker" }); },
+    "a gap with an invented severity":
+      (e) => { e.gaps.push({ ...e.gaps[0], title: "Scale", severity: "high" }); },
+    "an action with an invented priority":
+      (e) => { e.suggestedActions.push({ ...e.suggestedActions[0], action: "Ask about on-call.", priority: "urgent" }); },
+    "a strength with an empty summary":
+      (e) => { e.strengths.push({ title: "Ports", summary: "", evidence: [{ ref: "CV-001" }] }); },
+    "an interview item missing its rationale":
+      (e) => { e.interviewFocus.push({ question: "How did you port it?", evidence: [{ ref: "CV-001" }] }); },
+    "an uncertainty missing its message":
+      (e) => { e.uncertainties.push({ type: "team size", evidence: [{ ref: "JD-001" }] }); },
+    "a tailoring item that is not an object":
+      (e) => { e.resumeTailoring.push("rewrite the summary"); }
+  };
+
+  for (const [shape, breakIt] of Object.entries(cases)) {
+    const evidence = validEvidence();
+    breakIt(evidence);
+    const parsed = parseAgentEvidence(evidence, apiRequest());
+    // The good items from every list are still there.
+    assert.ok(parsed.requirements.length, `${shape}: requirements survive`);
+    assert.ok(parsed.strengths.length, `${shape}: strengths survive`);
+    assert.ok(parsed.suggestedActions.length, `${shape}: actions survive`);
+    // And nothing was invented to stand in for what was dropped.
+    for (const item of parsed.requirements) assert.ok(item.explanation, `${shape}: no blank rows`);
+  }
+});
+
+test("a reply that is broken all the way through is still refused", () => {
+  // The tolerance above must not become "accept anything": an answer where nothing
+  // survived parsing is not a thin analysis, it is a failure, and rendering a page
+  // of empty sections would present it as though it were the answer.
+  const evidence = validEvidence();
+  for (const key of ["requirements", "strengths", "gaps", "risks", "resumeTailoring", "interviewFocus", "uncertainties", "suggestedActions"]) {
+    evidence[key] = [{ nonsense: true }];
+  }
+  evidence.profileRisks = [];
+  assert.throws(() => parseAgentEvidence(evidence, apiRequest()), (error) => error.code === "OUTPUT_NO_FINDINGS");
 });
