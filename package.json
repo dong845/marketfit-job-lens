@@ -10,6 +10,7 @@
     "vendor:pdfjs": "node scripts/vendor-pdfjs.mjs",
     "icons": "node scripts/render-icons.mjs",
     "audit": "node scripts/audit.mjs",
+    "verify:live": "node scripts/live-verify.mjs",
     "check": "npm run lint && npm test && npm run audit",
     "preversion": "npm run check"
   },
