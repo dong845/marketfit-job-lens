@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { AGENT_EVIDENCE_SCHEMA, BridgeError, FIELD_LIMITS, RESULT_LIMITS, extractJsonText, parseAgentEvidence, parseTaskRequest } from "../src/ai/schema.js";
+import { AGENT_EVIDENCE_SCHEMA, BridgeError, FIELD_LIMITS, RESULT_LIMITS, extractJsonText, parseAgentEvidence, parseJsonOutput, parseTaskRequest } from "../src/ai/schema.js";
+import { MODELS } from "../src/ai/models.js";
 
 /**
  * The evidence and result-shape layer, independent of any provider.
@@ -487,4 +488,47 @@ test("the two conditional rules travel exactly when they apply", async () => {
   // Neither condition may take the other's rule down with it.
   assert.match(build({ workAuthorization: "authorized" }, "Leiden, NL"), COMPARISON);
   assert.match(build({ workAuthorization: "authorized" }, "Leiden, NL"), CONVENTIONS);
+});
+
+test("no model's output budget is smaller than the longest answer the schema allows", () => {
+  // The schema's caps multiply out to a worst-case answer size. A budget below it
+  // means the longest legal reply cannot fit — and the result is not a shorter
+  // analysis, it is a JSON object cut off mid-write that parses as nothing, on a run
+  // billed in full. Several budgets sat under this line and the symptom reached
+  // users as "the AI replied, but not with a usable analysis", which points at the
+  // model rather than at the arithmetic here.
+  const widest = (node) => {
+    if (!node || typeof node !== "object") return 0;
+    if (node.type === "string") return node.maxLength ?? (node.enum ? Math.max(...node.enum.map((v) => v.length)) : 40);
+    if (node.type === "array") return (node.maxItems ?? 8) * widest(node.items);
+    if (node.type === "object") return Object.values(node.properties || {}).reduce((sum, p) => sum + widest(p) + 20, 0);
+    return 0;
+  };
+  // ~3.2 characters per token is a deliberately conservative divisor: it OVERstates
+  // the token count, so the check errs towards demanding more headroom, not less.
+  const ceilingTokens = Math.round(widest(AGENT_EVIDENCE_SCHEMA) / 3.2);
+  for (const [id, model] of Object.entries(MODELS)) {
+    assert.ok(
+      model.maxOutputTokens >= ceilingTokens,
+      `${id}: budget ${model.maxOutputTokens} is below the schema's ${ceilingTokens}-token worst case — a full-length answer would be truncated`
+    );
+  }
+});
+
+test("an answer cut off partway says so, instead of blaming the model", () => {
+  // These are different failures with different fixes, and collapsing them sent
+  // people to try another model for something no model would have fixed.
+  assert.throws(
+    () => parseJsonOutput('{"overview":{"jobFocus":"the role foc'),
+    (error) => error.code === "OUTPUT_TRUNCATED"
+  );
+  assert.throws(
+    () => parseJsonOutput('{"overview":{"jobFocus":'),
+    (error) => error.code === "OUTPUT_TRUNCATED"
+  );
+  // Genuinely not JSON is still the untrusted-output case.
+  assert.throws(
+    () => parseJsonOutput("I am unable to analyse this posting."),
+    (error) => error.code === "OUTPUT_UNTRUSTED"
+  );
 });

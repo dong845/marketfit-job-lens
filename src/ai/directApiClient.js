@@ -351,10 +351,28 @@ async function readEventStream(stream, controller, reducer, onProgress) {
   const idle = setInterval(() => {
     if (lastByteAt && Date.now() - lastByteAt >= STREAM_IDLE_TIMEOUT_MS) controller.abort();
   }, 1000);
+  const handleFrame = (frame) => {
+    const event = parseEventFrame(frame);
+    if (!event) return;
+    events += 1;
+    reducer.event(state, event);
+  };
   try {
     for (;;) {
       const { done, value } = await reader.read();
-      if (done) break;
+      if (done) {
+        // Hand over what is still held back. The trailing piece is kept out of each
+        // round because a chunk can end mid-event — but at the end of the stream
+        // there is no next chunk to complete it, and dropping it silently discarded
+        // the final event. That is where the closing braces of the JSON are, and
+        // where stop_reason rides: a complete answer arrived with its tail cut off
+        // and was reported as the provider not returning valid JSON, and a
+        // truncated one lost the only flag that said so. A blank line after the
+        // last event is what SSE asks for, not what every sender does.
+        buffer += decoder.decode();
+        handleFrame(buffer);
+        break;
+      }
       lastByteAt = Date.now();
       buffer += decoder.decode(value, { stream: true });
       // Events are separated by a blank line, and a line ends with CRLF, LF or CR —
@@ -369,12 +387,7 @@ async function readEventStream(stream, controller, reducer, onProgress) {
       // match yet, and the trailing piece is held back until the rest of it lands.
       const frames = buffer.split(/\r\n\r\n|\n\n|\r\r/);
       buffer = frames.pop() ?? "";
-      for (const frame of frames) {
-        const event = parseEventFrame(frame);
-        if (!event) continue;
-        events += 1;
-        reducer.event(state, event);
-      }
+      frames.forEach(handleFrame);
       // Answer text, not any traffic. Keep-alive pings and thinking blocks travel on
       // this same stream and prove only that the connection is alive — which the
       // idle deadline already covers. The moment worth reporting is the first

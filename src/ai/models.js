@@ -16,6 +16,15 @@
  * thinking is billed against this same ceiling, and overrunning it produces a
  * truncated JSON object, which is a run charged in full that renders nothing.
  *
+ * Every budget here is 32000, and the number is not a guess: the schema's own caps
+ * multiply out to roughly 21,300 tokens of JSON at full length (RESULT_LIMITS x
+ * FIELD_LIMITS). A budget under that means the longest legal answer cannot fit, and
+ * the failure it produces is not a shorter analysis — it is a cut-off JSON object
+ * that parses as nothing. Several budgets here were below it. Reasoning models make
+ * it worse by spending from the same ceiling before writing a character, so the
+ * headroom has to cover the answer AND the thinking. Raising a ceiling costs nothing
+ * when it is not reached: you are billed for tokens generated, not tokens allowed.
+ *
  * typicalSeconds is a rough starting estimate only, replaced by the duration this
  * machine actually measured for that model on its first successful run. It is a
  * progress hint, never presented as a measurement we have made.
@@ -55,28 +64,28 @@ export const MODELS = Object.freeze({
     typicalSeconds: 60,
     provider: "anthropic-api",
     labelKey: "anthropicOpus46",
-    maxOutputTokens: 16000,
+    maxOutputTokens: 32000,
     structuredOutputs: false
   },
   "claude-sonnet-4-6": {
     typicalSeconds: 45,
     provider: "anthropic-api",
     labelKey: "anthropicSonnet46",
-    maxOutputTokens: 16000,
+    maxOutputTokens: 32000,
     structuredOutputs: false
   },
   "gpt-5": {
     typicalSeconds: 80,
     provider: "openai-api",
     labelKey: "openAiGpt5",
-    maxOutputTokens: 24000,
+    maxOutputTokens: 32000,
     structuredOutputs: true
   },
   "gpt-5-mini": {
     typicalSeconds: 40,
     provider: "openai-api",
     labelKey: "openAiGpt5Mini",
-    maxOutputTokens: 24000,
+    maxOutputTokens: 32000,
     structuredOutputs: true
   },
   // DeepSeek serves an OpenAI-compatible /chat/completions endpoint. It accepts
@@ -95,7 +104,7 @@ export const MODELS = Object.freeze({
     thinking: false,
     provider: "deepseek-api",
     labelKey: "deepseekV4Flash",
-    maxOutputTokens: 24000,
+    maxOutputTokens: 32000,
     structuredOutputs: false,
     jsonObjectMode: true
   },
@@ -104,7 +113,7 @@ export const MODELS = Object.freeze({
     thinking: false,
     provider: "deepseek-api",
     labelKey: "deepseekV4Pro",
-    maxOutputTokens: 24000,
+    maxOutputTokens: 32000,
     structuredOutputs: false,
     jsonObjectMode: true
   }

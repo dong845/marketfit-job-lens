@@ -564,12 +564,25 @@ export function parseAgentEvidence(value, request) {
   };
 }
 
+/**
+ * Text to analysis, with the two ways it can fail told apart.
+ *
+ * "Did not return valid JSON" was the only answer here, and it sent people to try a
+ * different model for something no model would have fixed: an answer cut off partway
+ * is not the same failure as an answer that was never JSON. The parser knows which
+ * it saw — a cut-off object ends the input or leaves a string open, while prose
+ * fails on its first character — so the reader gets told which, and truncation gets
+ * the message that names a shorter posting and a bigger budget as the way out.
+ */
 export function parseJsonOutput(value) {
   if (value && typeof value === "object" && !Array.isArray(value)) return value;
   const textValue = extractJsonText(value);
   try {
     return JSON.parse(textValue);
-  } catch {
+  } catch (error) {
+    if (/end of (?:JSON )?input|Unterminated/i.test(String(error?.message))) {
+      throw new BridgeError("OUTPUT_TRUNCATED", "The AI provider ran out of output space before finishing. Try a shorter job description, or switch to another model.");
+    }
     throw new BridgeError("OUTPUT_UNTRUSTED", "Provider did not return valid JSON.");
   }
 }

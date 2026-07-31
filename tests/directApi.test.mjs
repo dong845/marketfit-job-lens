@@ -374,6 +374,49 @@ test("progress is optional, and a caller that wants none still gets its analysis
   assert.equal(result.requirements[0].name, "Python");
 });
 
+test("the last event is read even when the stream ends without a blank line", async () => {
+  // The reader holds back the trailing piece of the buffer because a chunk can end
+  // mid-event — but on `done` that piece was dropped instead of parsed. A stream
+  // that does not end with a blank line therefore lost its final event, and the
+  // final event is where the closing braces of the JSON are: the answer arrived
+  // complete and was handed on with its tail missing, reported as the provider not
+  // returning valid JSON. The provider had; we had thrown the end of it away.
+  const json = JSON.stringify(validEvidence());
+  const client = createDirectApiClient({
+    permissionsApi: { async contains() { return true; } },
+    fetchImpl: async () => ({
+      ok: true,
+      status: 200,
+      body: rawBody([
+        `data: ${JSON.stringify({ type: "content_block_delta", delta: { type: "text_delta", text: json.slice(0, -30) } })}\n\n`,
+        // No trailing blank line after this one — the stream just ends.
+        `data: ${JSON.stringify({ type: "content_block_delta", delta: { type: "text_delta", text: json.slice(-30) } })}`
+      ])
+    })
+  });
+  const { result } = await client.runTask(apiRequest("anthropic-api", "claude-sonnet-4-6"));
+  assert.equal(result.requirements[0].name, "Python");
+});
+
+test("a truncation flag in the final event still stops a partial answer", async () => {
+  // Same tail, different cargo: when the last event is the one carrying
+  // stop_reason, dropping it loses the only signal that the answer is incomplete.
+  // The partial JSON then fails to parse and is reported as the model returning
+  // nonsense, which sends the user to try another model for a budget problem.
+  const client = createDirectApiClient({
+    permissionsApi: { async contains() { return true; } },
+    fetchImpl: async () => ({
+      ok: true,
+      status: 200,
+      body: rawBody([
+        'data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"{\\"overview\\":"}}\n\n',
+        'data: {"type":"message_delta","delta":{"stop_reason":"max_tokens"}}'
+      ])
+    })
+  });
+  await assert.rejects(() => client.runTask(apiRequest("anthropic-api", "claude-opus-4-6")), /ran out of output space/);
+});
+
 test("a CRLF stream is read, and does not silently cost a second generation", async () => {
   // Line terminators in server-sent events may be CRLF, LF or CR, and the sender
   // picks. Splitting on "\n\n" alone found no event boundary at all in a CRLF
