@@ -118,7 +118,7 @@ Key 由你提供，用量由对方按你的账户计费。
 | 服务 | 可选模型 | 去哪里创建 Key |
 | --- | --- | --- |
 | OpenAI | GPT-5 mini, GPT-5 | [platform.openai.com](https://platform.openai.com/) → API keys |
-| Anthropic | Claude Opus 5, Claude Sonnet 5, Claude Opus 4.6, Claude Sonnet 4.6 | [platform.claude.com/settings/keys](https://platform.claude.com/settings/keys) |
+| Anthropic | Claude Opus 4.6, Claude Sonnet 4.6 | [platform.claude.com/settings/keys](https://platform.claude.com/settings/keys) |
 | DeepSeek | DeepSeek V4 Flash, DeepSeek V4 Pro | [platform.deepseek.com](https://platform.deepseek.com/) → API keys |
 
 三家都已端到端验证可用。

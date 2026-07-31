@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { readFileSync } from "node:fs";
 import { createDirectApiClient, DIRECT_PROVIDER_ORIGINS } from "../src/ai/directApiClient.js";
-import { MODELS } from "../src/ai/models.js";
+import { MODELS, modelsForProvider } from "../src/ai/models.js";
 
 function apiRequest(provider = "openai-api", model = "gpt-5") {
   // model may be undefined; modelConfig then picks the provider default.
@@ -153,13 +153,12 @@ test("the panel treats a missing result as a failure, not a finished analysis", 
   assert.ok(guard < assign, "and rejected before it is treated as an analysis");
 });
 
-test("every Anthropic model returns the envelope, on both schema branches", async () => {
-  // Claude 5 sends output_config (structured outputs); 4.6 predates it and uses
-  // prompt-and-extract. Both must reach the panel through the same envelope.
-  for (const [model, structured] of [
-    ["claude-sonnet-5", true], ["claude-opus-5", true],
-    ["claude-sonnet-4-6", false], ["claude-opus-4-6", false]
-  ]) {
+test("every Anthropic model returns the envelope, whichever schema branch it takes", async () => {
+  // Read from the registry rather than listed here. A hardcoded list is wrong twice:
+  // it stops covering a model the moment one is added, and when one is REMOVED the
+  // stale name silently resolves to the provider default — so the test keeps passing
+  // while testing a different model than it names.
+  for (const { id: model, structuredOutputs: structured } of modelsForProvider("anthropic-api")) {
     const calls = [];
     const client = createDirectApiClient({
       permissionsApi: { async contains() { return true; } },
@@ -176,16 +175,17 @@ test("every Anthropic model returns the envelope, on both schema branches", asyn
     // decision — thinking is billed from max_tokens — and a test that pins the
     // number here would have to be edited every time that decision is revisited.
     assert.equal(calls[0].max_tokens, MODELS[model].maxOutputTokens, `${model}: wrong output budget`);
-    assert.equal(Boolean(calls[0].output_config), structured, `${model}: wrong structured-output branch`);
+    assert.equal(Boolean(calls[0].output_config), Boolean(structured), `${model}: wrong structured-output branch`);
     assert.match(calls[0].url ?? "https://api.anthropic.com/v1/messages", /anthropic/);
   }
 });
 
-test("Anthropic thinking is stated per model, never inherited from the default", async () => {
-  // The same omission asks for opposite behaviour on the two generations: Claude 5
-  // thinks when `thinking` is absent, 4.6 does not. Leaving it out meant the request
-  // could not be read to find out which, and the thinking Claude 5 silently switched
-  // on is spent from max_tokens — the JSON truncated and the run was billed anyway.
+test("Anthropic thinking is what the registry says, never what the default happens to be", async () => {
+  // One omission asks opposite things of two generations: with `thinking` absent
+  // Claude 5 thinks and 4.6 does not. So the guarantee is not "send adaptive" or
+  // "send nothing" — it is that the request says exactly what the registry says,
+  // and that reading either one tells you what the other does. That holds however
+  // the registry changes, including when no model in it thinks at all.
   const sentFor = async (model) => {
     let body;
     const client = createDirectApiClient({
@@ -199,15 +199,12 @@ test("Anthropic thinking is stated per model, never inherited from the default",
     return body;
   };
 
-  for (const model of ["claude-opus-5", "claude-sonnet-5"]) {
-    assert.deepEqual((await sentFor(model)).thinking, { type: "adaptive" }, `${model} must ask for thinking explicitly`);
-    assert.equal(MODELS[model].thinking, "adaptive", "the registry is where that decision lives");
-  }
-  // 4.6 keeps the default it has always shipped with, and the registry says so by
-  // carrying no thinking key at all rather than by carrying a false one.
-  for (const model of ["claude-opus-4-6", "claude-sonnet-4-6"]) {
-    assert.equal((await sentFor(model)).thinking, undefined, `${model} must not send a thinking mode it has never carried`);
-    assert.equal(MODELS[model].thinking, undefined);
+  const anthropic = modelsForProvider("anthropic-api");
+  assert.ok(anthropic.length, "the provider must offer at least one model");
+  for (const { id: model, thinking } of anthropic) {
+    const sent = (await sentFor(model)).thinking;
+    if (thinking === "adaptive") assert.deepEqual(sent, { type: "adaptive" }, `${model} must ask for thinking explicitly`);
+    else assert.equal(sent, undefined, `${model} must not send a thinking mode the registry does not give it`);
   }
 });
 
@@ -263,7 +260,7 @@ test("a streamed reply cut off by the token budget still says so", async () => {
       ])
     })
   });
-  await assert.rejects(() => client.runTask(apiRequest("anthropic-api", "claude-opus-5")), /ran out of output space/);
+  await assert.rejects(() => client.runTask(apiRequest("anthropic-api", "claude-opus-4-6")), /ran out of output space/);
 });
 
 test("a stream carries thinking and JSON on the same wire, and only the JSON is kept", async () => {
@@ -283,7 +280,7 @@ test("a stream carries thinking and JSON on the same wire, and only the JSON is 
       ])
     })
   });
-  const { result } = await client.runTask(apiRequest("anthropic-api", "claude-opus-5"));
+  const { result } = await client.runTask(apiRequest("anthropic-api", "claude-opus-4-6"));
   assert.equal(result.requirements[0].name, "Python");
 });
 
@@ -302,7 +299,7 @@ test("an error delivered mid-stream is reported, not read as an empty answer", a
       ])
     })
   });
-  await assert.rejects(() => client.runTask(apiRequest("anthropic-api", "claude-sonnet-5")), /Overloaded/);
+  await assert.rejects(() => client.runTask(apiRequest("anthropic-api", "claude-sonnet-4-6")), /Overloaded/);
 });
 
 test("an event split across two network chunks is not lost", async () => {
@@ -320,7 +317,7 @@ test("an event split across two network chunks is not lost", async () => {
       body: rawBody([frame.slice(0, seam), frame.slice(seam), 'data: {"type":"message_delta","delta":{"stop_reason":"end_turn"}}\n\n'])
     })
   });
-  const { result } = await client.runTask(apiRequest("anthropic-api", "claude-sonnet-5"));
+  const { result } = await client.runTask(apiRequest("anthropic-api", "claude-sonnet-4-6"));
   assert.equal(result.requirements[0].name, "Python");
 });
 
@@ -346,7 +343,7 @@ test("progress separates the time spent thinking from the time spent writing", a
     })
   });
 
-  const { result } = await client.runTask(apiRequest("anthropic-api", "claude-sonnet-5"), {
+  const { result } = await client.runTask(apiRequest("anthropic-api", "claude-sonnet-4-6"), {
     onProgress: (update) => updates.push(update)
   });
   assert.equal(result.requirements[0].name, "Python");
@@ -373,7 +370,7 @@ test("progress is optional, and a caller that wants none still gets its analysis
       body: sseBody([`data: ${JSON.stringify({ type: "content_block_delta", delta: { type: "text_delta", text: JSON.stringify(validEvidence()) } })}`])
     })
   });
-  const { result } = await client.runTask(apiRequest("anthropic-api", "claude-sonnet-5"));
+  const { result } = await client.runTask(apiRequest("anthropic-api", "claude-sonnet-4-6"));
   assert.equal(result.requirements[0].name, "Python");
 });
 
@@ -399,7 +396,7 @@ test("a CRLF stream is read, and does not silently cost a second generation", as
       };
     }
   });
-  const { result } = await client.runTask(apiRequest("anthropic-api", "claude-sonnet-5"));
+  const { result } = await client.runTask(apiRequest("anthropic-api", "claude-sonnet-4-6"));
   assert.equal(result.requirements[0].name, "Python");
   assert.equal(attempts, 1, "and it must not have taken a second run to get there");
 });
@@ -418,7 +415,7 @@ test("a stream shape we cannot read fails once, instead of being retried", async
     }
   });
   await assert.rejects(
-    () => client.runTask(apiRequest("anthropic-api", "claude-sonnet-5")),
+    () => client.runTask(apiRequest("anthropic-api", "claude-sonnet-4-6")),
     (error) => error.code === "providerStreamUnreadable"
   );
   assert.equal(attempts, 1, "one run, not two");
@@ -437,7 +434,7 @@ test("a gateway that ignores the stream request is still read", async () => {
       body: rawBody([JSON.stringify({ content: [{ type: "text", text: JSON.stringify(validEvidence()) }] })])
     })
   });
-  const { result } = await client.runTask(apiRequest("anthropic-api", "claude-sonnet-5"));
+  const { result } = await client.runTask(apiRequest("anthropic-api", "claude-sonnet-4-6"));
   assert.equal(result.requirements[0].name, "Python");
 });
 
@@ -479,18 +476,23 @@ function rawBody(pieces) {
 }
 
 test("a provider that rejects the schema is retried without it rather than failing", async () => {
-  let attempts = 0;
+  // On OpenAI, because it is the provider that still sends a schema. Run against an
+  // Anthropic model this asserted a retry that dropped a structured-output config
+  // the request never carried — two attempts and a green tick, testing nothing.
+  const sent = [];
   const client = createDirectApiClient({
     permissionsApi: { async contains() { return true; } },
-    fetchImpl: async () => {
-      attempts += 1;
-      if (attempts === 1) return { ok: false, status: 400, async json() { return { error: { message: "output_config.format is not supported for this model" } }; } };
-      return { ok: true, status: 200, async json() { return { content: [{ type: "text", text: JSON.stringify(validEvidence()) }] }; } };
+    fetchImpl: async (url, options) => {
+      sent.push(JSON.parse(options.body));
+      if (sent.length === 1) return { ok: false, status: 400, async json() { return { error: { message: "text.format json_schema is not supported for this model" } }; } };
+      return { ok: true, status: 200, async json() { return { output_text: JSON.stringify(validEvidence()) }; } };
     }
   });
-  const response = await client.runTask(apiRequest("anthropic-api", "claude-sonnet-5"));
-  assert.equal(attempts, 2, "it must retry once without the structured-output config");
-  assert.ok(response.result, "and still deliver an analysis");
+  const response = await client.runTask(apiRequest("openai-api", "gpt-5"));
+  assert.equal(sent.length, 2, "it must retry once without the structured-output config");
+  assert.ok(sent[0].text?.format, "the first attempt carries the schema");
+  assert.equal(sent[1].text, undefined, "and the retry is the same request with the schema dropped");
+  assert.ok(response.result, "and still delivers an analysis");
 });
 
 test("a truncated Anthropic reply says what to do about it", async () => {
@@ -498,7 +500,7 @@ test("a truncated Anthropic reply says what to do about it", async () => {
     permissionsApi: { async contains() { return true; } },
     fetchImpl: async () => ({ ok: true, status: 200, async json() { return { stop_reason: "max_tokens", content: [{ type: "text", text: '{"overview":' }] }; } })
   });
-  await assert.rejects(() => client.runTask(apiRequest("anthropic-api", "claude-opus-5")), /ran out of output space/);
+  await assert.rejects(() => client.runTask(apiRequest("anthropic-api", "claude-opus-4-6")), /ran out of output space/);
 });
 
 test("DeepSeek goes only to its own endpoint, with the key request-only", async () => {
@@ -676,7 +678,7 @@ test("Anthropic is called with the header a browser origin requires", async () =
       return { ok: true, status: 200, async json() { return { content: [{ type: "text", text: JSON.stringify(validEvidence()) }] }; } };
     }
   });
-  await client.runTask(apiRequest("anthropic-api", "claude-sonnet-5"));
+  await client.runTask(apiRequest("anthropic-api", "claude-sonnet-4-6"));
   assert.equal(headers["anthropic-dangerous-direct-browser-access"], "true");
   assert.equal(headers["anthropic-version"], "2023-06-01");
   // The preflight allows exactly these four names; anything else fails CORS before

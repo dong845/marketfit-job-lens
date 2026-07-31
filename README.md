@@ -138,7 +138,7 @@ You bring the key; usage is billed by that provider to your own account.
 | Provider | Models | Get a key |
 | --- | --- | --- |
 | OpenAI | GPT-5 mini, GPT-5 | [platform.openai.com](https://platform.openai.com/) → API keys |
-| Anthropic | Claude Opus 5, Claude Sonnet 5, Claude Opus 4.6, Claude Sonnet 4.6 | [platform.claude.com/settings/keys](https://platform.claude.com/settings/keys) |
+| Anthropic | Claude Opus 4.6, Claude Sonnet 4.6 | [platform.claude.com/settings/keys](https://platform.claude.com/settings/keys) |
 | DeepSeek | DeepSeek V4 Flash, DeepSeek V4 Pro | [platform.deepseek.com](https://platform.deepseek.com/) → API keys |
 
 All three are verified working end to end.

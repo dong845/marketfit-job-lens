@@ -12,54 +12,45 @@
  * budget of 7000 was low enough that a full-length analysis hit the cap, and a
  * capped response is a hard error that returns nothing for a call the user paid
  * for. Reasoning models spend part of this budget on thinking before writing a
- * single character of JSON, so they get the most headroom.
+ * single character of JSON, so a thinking model needs the most headroom — its
+ * thinking is billed against this same ceiling, and overrunning it produces a
+ * truncated JSON object, which is a run charged in full that renders nothing.
  *
- * The Claude 5 pair carry the largest budget for that reason and no other: they
- * think by default, that thinking is billed against this same ceiling, and the
- * failure it produces is a truncated JSON object — a run charged in full that
- * renders nothing. Raising a ceiling costs nothing when it is not reached, and
- * the request is streamed, so a longer answer no longer risks the deadline.
- */
-/**
  * typicalSeconds is a rough starting estimate only, replaced by the duration this
  * machine actually measured for that model on its first successful run. It is a
  * progress hint, never presented as a measurement we have made.
- */
-/**
+ *
  * `thinking` is stated per model rather than left to the provider's default,
- * because the default reverses between generations and the reversal is silent.
- * Omitting the field means adaptive thinking on Claude 5 and no thinking on 4.6 —
- * so the same request body asked one pair of models to think and the other not to,
- * and nothing in the code said so. Thinking tokens are also spent from the same
- * `max_tokens` as the JSON, which is how a budget that fit 4.6 truncated on 5.
+ * because the default reverses between generations and the reversal is silent:
+ * omitting the field means adaptive thinking on Claude 5 and no thinking on 4.6,
+ * so one absence asked opposite things of two models and nothing in the code said
+ * so. No model here sets it today — see the note in MODELS — but the field is how
+ * the answer gets written down when one does, rather than inherited.
  */
 export const MODELS = Object.freeze({
-  "claude-opus-5": {
-    typicalSeconds: 90,
-    provider: "anthropic-api",
-    labelKey: "anthropicOpus5",
-    maxOutputTokens: 32000,
-    thinking: "adaptive",
-    structuredOutputs: true,
-    effort: "medium"
-  },
-  "claude-sonnet-5": {
-    typicalSeconds: 55,
-    provider: "anthropic-api",
-    labelKey: "anthropicSonnet5",
-    maxOutputTokens: 32000,
-    thinking: "adaptive",
-    structuredOutputs: true,
-    effort: "medium"
-  },
-  // Retained as the lower-cost option. 4.6 predates Anthropic structured
-  // outputs, so it keeps the prompt-and-extract path.
+  // Claude Opus 5 and Sonnet 5 were offered here and are not any more: they took
+  // long enough that the answer stopped being worth waiting for. The cause is not
+  // a mystery and it is not fixable from this file — both think by default, that
+  // thinking is billed from the same output budget as the JSON, and a schema this
+  // wide gives them a great deal to think about. Every lever short of restructuring
+  // the request trades that latency against analysis quality, which is a bad trade
+  // for a panel someone runs while deciding whether to spend an evening on one job.
   //
-  // No `thinking` key: on 4.6 an omitted field already means no thinking, and that
-  // is the behaviour these two have shipped with. Sending {type:"disabled"} would
-  // say the same thing, but it is a parameter this path has never carried and a
-  // rejection here costs a run rather than degrading — so the default stays, named
-  // in this comment rather than in the request.
+  // 4.6 is quick for exactly the reason its successors are slow: it does not think
+  // unless asked, so the whole output budget goes to the answer. That is why these
+  // two remain and why they are not a downgrade for this particular task.
+  //
+  // The capability flags the 5 pair used — `thinking`, `structuredOutputs`, `effort`
+  // — are still honoured by directApiClient. They are how a model is described, not
+  // a special case for two model ids, so a faster structured-output model can be
+  // added back by adding a row here and nothing else.
+  //
+  // No `thinking` key on either: on 4.6 an omitted field already means no thinking,
+  // and that is the behaviour these have shipped with. Sending {type:"disabled"}
+  // would say the same thing, but it is a parameter this path has never carried and
+  // a rejection costs a run rather than degrading — so the default stays, named in
+  // this comment rather than in the request. 4.6 also predates Anthropic structured
+  // outputs, so both keep the prompt-and-extract path.
   "claude-opus-4-6": {
     typicalSeconds: 60,
     provider: "anthropic-api",
@@ -121,7 +112,7 @@ export const MODELS = Object.freeze({
 
 export const DEFAULT_MODEL = Object.freeze({
   "openai-api": "gpt-5-mini",
-  "anthropic-api": "claude-sonnet-5",
+  "anthropic-api": "claude-sonnet-4-6",
   "deepseek-api": "deepseek-v4-flash"
 });
 

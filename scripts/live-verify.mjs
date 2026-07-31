@@ -72,7 +72,10 @@ if (!args.cv || !args.jd) {
   console.warn("  you can trust.\n");
 }
 
-const models = args.model ? [args.model] : modelsForProvider("anthropic-api").filter((m) => m.thinking === "adaptive").map((m) => m.id);
+// Every Anthropic model by default. This used to select only the thinking ones,
+// which silently became an empty list the moment those were removed from the
+// registry — a verifier that reports success by testing nothing.
+const models = args.model ? [args.model] : modelsForProvider("anthropic-api").map((m) => m.id);
 const efforts = args.effort ? args.effort.split(",") : [null];
 for (const model of models) {
   if (!MODELS[model]) {
