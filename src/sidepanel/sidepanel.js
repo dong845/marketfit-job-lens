@@ -565,7 +565,7 @@ async function runAgentReview() {
         job: {
           title: job.title, company: job.company, location: job.location,
           employmentType: job.employmentType || "", salary: job.salary || "",
-          description: job.sourceText, url: job.url || ""
+          description: job.sourceText
         },
         // The market selector was collected and never sent — a control that looked
         // like it personalised the analysis and did nothing.

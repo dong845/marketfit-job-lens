@@ -478,8 +478,11 @@ export function parseTaskRequest(value) {
         location: optionalText(job.location, "job.location", 240),
         description: jobDescription,
         employmentType: optionalText(job.employmentType, "job.employmentType", 120),
-        salary: optionalText(job.salary, "job.salary", 240),
-        url: optionalText(job.url, "job.url", 1200)
+        // url is gone for the same reason targetRole and languages went: nothing in the
+        // prompt consumed it, and a field no instruction mentions cannot be told apart
+        // from one the model was told to ignore. The report's link to the posting comes
+        // from the captured job, which is untouched.
+        salary: optionalText(job.salary, "job.salary", 240)
       },
       // Only what a prompt instruction actually consumes. targetRole and languages
       // were sent on every request, hardcoded empty, and read by nothing — a payload
