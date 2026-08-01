@@ -398,6 +398,9 @@ export const AGENT_EVIDENCE_SCHEMA = Object.freeze({
  * and rejects only genuinely malformed output. The schema above remains the single
  * source of truth for the limits; this only changes what travels on the wire.
  */
+/** The section names that identify a reply as this analysis rather than some other object. */
+const ANALYSIS_SECTIONS = new Set(AGENT_EVIDENCE_SCHEMA.required);
+
 const UNSUPPORTED_SCHEMA_KEYWORDS = new Set([
   "minLength", "maxLength", "pattern", "format",
   "minItems", "maxItems", "uniqueItems",
@@ -514,6 +517,13 @@ export function parseAgentEvidence(value, request) {
     throw new BridgeError("OUTPUT_UNTRUSTED", "Provider output must be a JSON object.");
   }
   const result = value;
+  // A reply carrying none of these section names is not an analysis with nothing in
+  // it — it is a reply we failed to recognise, and the two need opposite next steps.
+  // Reported as no-findings it read as "the model had nothing to say", which sent the
+  // reader to retry a model that had answered well and whose reply we had mangled.
+  if (!Object.keys(result).some((key) => ANALYSIS_SECTIONS.has(key))) {
+    throw new BridgeError("OUTPUT_UNTRUSTED", "Provider output carries none of the analysis sections.");
+  }
   // Absent is an omission, exactly as it is for every list below. Nothing but the
   // prompt keeps this block present on a model with no structured-output mode — both
   // remaining Anthropic models predate it — and textBlock() already renders a missing
@@ -702,10 +712,53 @@ export function extractJsonText(value) {
     : text;
   const start = fenced.indexOf("{");
   const candidates = balancedObjects(fenced);
+  const scanned = analysisAmong(candidates);
 
-  // The analysis is the object carrying this schema's own section names. An example
-  // in a preamble and a stray fragment never do, whatever their size or position.
-  const sections = new Set(AGENT_EVIDENCE_SCHEMA.required);
+  // One unescaped quote inside a string value ends that string early, and everything
+  // after it stops being structure — so the scan above sees only fragments of a reply
+  // that is otherwise complete. claude-opus-4-6 writing Chinese did exactly this,
+  // reaching for ASCII quotes mid-sentence (候选人不只是"会用"，) in an 8,632-character
+  // analysis that was correct in every other respect. Falling back to the largest
+  // fragment reported that as an analysis with nothing in it, which is the one reading
+  // that sends the reader to retry a model that had answered well.
+  //
+  // Attempted only after the honest scan has failed, so a reply that already parses is
+  // never rewritten — a repair pass that fires on healthy JSON would corrupt far more
+  // than it ever recovered.
+  const repaired = withEscapedStrayQuotes(fenced);
+  const mended = repaired === fenced ? null : analysisAmong(balancedObjects(repaired));
+  // Whichever carries more of the schema's sections wins, rather than whichever was
+  // found first. When the outer object fails to parse, the only candidates left are
+  // fragments of it — and a resumeTailoring item carries a key called "recommendation",
+  // which is a section name too. First-match-wins handed back that one item as though
+  // it were the analysis. Counting the matches instead makes a nine-section reply beat
+  // a one-key fragment, which is the whole point of matching section names at all.
+  if (mended && mended.score > scanned.score) return mended.analysis;
+  if (scanned.analysis) return scanned.analysis;
+  if (mended?.analysis) return mended.analysis;
+
+  // Nothing recognisable. If the object opened at the first brace never closed, the
+  // reply was cut off — hand back the unclosed remainder so parseJsonOutput sees a
+  // failure at the end of the input and says "ran out of room" rather than blaming
+  // the model. Otherwise return the largest complete object there was: it parses,
+  // and failing it against the schema names the real problem better than this can.
+  const firstClosed = candidates.some((candidate) => candidate.start === start);
+  if (start >= 0 && !firstClosed) return fenced.slice(start);
+  return scanned.best || (start >= 0 ? fenced.slice(start) : fenced);
+}
+
+/**
+ * The candidate carrying most of this schema's own section names, how many it carried,
+ * and the largest one that parsed at all.
+ *
+ * An example in a preamble and a stray fragment never carry the section names, whatever
+ * their size or position — length and place both lie. But a single name is not enough
+ * either: several of these sections hold items with a key of the same name, so one
+ * match can be a nested row rather than the analysis. The count is what separates them.
+ */
+function analysisAmong(candidates) {
+  let analysis = "";
+  let score = 0;
   let best = "";
   for (const { text: candidate } of candidates) {
     let parsed;
@@ -715,18 +768,59 @@ export function extractJsonText(value) {
       continue;
     }
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) continue;
-    if (Object.keys(parsed).some((key) => sections.has(key))) return candidate;
+    const matched = Object.keys(parsed).filter((key) => ANALYSIS_SECTIONS.has(key)).length;
+    if (matched > score) {
+      score = matched;
+      analysis = candidate;
+    }
     if (candidate.length > best.length) best = candidate;
   }
+  return { analysis, score, best };
+}
 
-  // Nothing recognisable. If the object opened at the first brace never closed, the
-  // reply was cut off — hand back the unclosed remainder so parseJsonOutput sees a
-  // failure at the end of the input and says "ran out of room" rather than blaming
-  // the model. Otherwise return the largest complete object there was: it parses,
-  // and failing it against the schema names the real problem better than this can.
-  const firstClosed = candidates.some((candidate) => candidate.start === start);
-  if (start >= 0 && !firstClosed) return fenced.slice(start);
-  return best || (start >= 0 ? fenced.slice(start) : fenced);
+/**
+ * Escapes quotes that a model left bare inside a string value.
+ *
+ * A quote inside a string closes it only if what follows is JSON structure — a comma,
+ * a closing brace or bracket, a colon, or the end of the text. Anything else means the
+ * document carried on mid-value, which is a quotation the model wrote and did not
+ * escape. That test is what makes this safe to apply blind: it rewrites only quotes
+ * that could not have been closing ones, so a reply whose quotes are all escaped
+ * correctly comes back unchanged and is never re-parsed.
+ *
+ * It cannot resolve every case — prose that genuinely ends on a quoted phrase followed
+ * by a comma is ambiguous to any reader, ourselves included — so this recovers the
+ * common shape rather than promising to recover all of them.
+ */
+function withEscapedStrayQuotes(text) {
+  let out = "";
+  let inString = false;
+  for (let index = 0; index < text.length; index += 1) {
+    const character = text[index];
+    if (!inString) {
+      out += character;
+      if (character === "\"") inString = true;
+      continue;
+    }
+    if (character === "\\") {
+      out += character + (text[index + 1] ?? "");
+      index += 1;
+      continue;
+    }
+    if (character !== "\"") {
+      out += character;
+      continue;
+    }
+    let next = index + 1;
+    while (next < text.length && /\s/.test(text[next])) next += 1;
+    if (next >= text.length || [",", "}", "]", ":"].includes(text[next])) {
+      out += character;
+      inString = false;
+    } else {
+      out += "\\\"";
+    }
+  }
+  return out;
 }
 
 /**

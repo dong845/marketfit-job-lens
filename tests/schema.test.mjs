@@ -247,6 +247,50 @@ test("JSON is recovered whether the model talks before it or after it", () => {
   assert.equal(extractJsonText("```json\n" + body + "\n```"), body);
 });
 
+test("an unescaped quote in the prose costs the quote, not the analysis", () => {
+  // What claude-opus-4-6 actually sent against a real posting, in Chinese: a complete
+  // 8,632-character analysis whose fitNarrative read 候选人不只是"会用"，— ASCII quotes
+  // reached for mid-sentence, unescaped, inside a JSON string. That ends the string
+  // early, so the reply did not parse; the brace matcher then fell back to a smaller
+  // fragment that did, which carried none of these section names, and every list came
+  // out empty. The reader was told the model had produced nothing usable. It had
+  // produced a good analysis, already paid for, over one stray character.
+  const body = JSON.stringify(validEvidence(), null, 2)
+    .replace("The candidate has cited", 'The candidate is not merely "familiar" but has cited');
+  const parsed = parseAgentEvidence(parseJsonOutput(body), apiRequest());
+  assert.ok(parsed.requirements.length, "the analysis survives the stray quote");
+  assert.match(parsed.overview.fitNarrative, /familiar/, "and the sentence keeps its words");
+});
+
+test("a reply carrying none of our sections says so, instead of reading as empty", () => {
+  // OUTPUT_NO_FINDINGS means the model answered in the right shape and found nothing.
+  // A reply with none of these keys is not that — it is a reply we failed to recognise,
+  // and calling it "no findings" sent the reader to retry a model that had answered
+  // perfectly well. The two need different next steps, so they get different codes.
+  assert.throws(
+    () => parseAgentEvidence({ ok: true, notes: "nothing we asked for" }, apiRequest()),
+    (error) => error instanceof BridgeError && error.code === "OUTPUT_UNTRUSTED"
+  );
+});
+
+test("a reply in the right shape with nothing in it is still no-findings", () => {
+  // The distinction above must not swallow the genuine case: sections present and
+  // empty is the model answering and finding nothing, which is what that code is for.
+  assert.throws(
+    () => parseAgentEvidence({ overview: {}, requirements: [], gaps: [], suggestedActions: [] }, apiRequest()),
+    (error) => error instanceof BridgeError && error.code === "OUTPUT_NO_FINDINGS"
+  );
+});
+
+test("the repair never touches a reply that already parses", () => {
+  // A quote the model escaped correctly must survive byte-for-byte: a repair pass that
+  // fires on healthy JSON would corrupt far more than it ever fixed.
+  const evidence = validEvidence();
+  evidence.overview.fitNarrative = 'The posting says "C++ required" in its own words.';
+  const parsed = parseAgentEvidence(parseJsonOutput(JSON.stringify(evidence)), apiRequest());
+  assert.equal(parsed.overview.fitNarrative, 'The posting says "C++ required" in its own words.');
+});
+
 test("the caps the model is told match the caps applied to its reply", () => {
   const schema = AGENT_EVIDENCE_SCHEMA;
   for (const key of ["requirements", "strengths", "gaps", "risks", "resumeTailoring", "interviewFocus", "uncertainties", "suggestedActions"]) {
