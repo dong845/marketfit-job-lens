@@ -14,15 +14,23 @@ automated application tool.
 
 ## Install
 
+**[Add it from the Chrome Web Store](https://chromewebstore.google.com/detail/mfhahobcbmmhpfjmbbijdglkmafapipe)** —
+one click, and Chrome keeps it updated.
+
+<details>
+<summary>Or load it unpacked, to run a specific version or your own build</summary>
+
 Download the latest `marketfit-job-lens-*.zip` from
 [Releases](https://github.com/dong845/marketfit-job-lens/releases), unzip it, then:
 
 `chrome://extensions` → turn on **Developer mode** → **Load unpacked** → select the
 unzipped folder.
 
+</details>
+
 The panel opens from the extension icon. Its header shows the loaded version — if
-that does not match the release you just installed, Chrome is still running the old
-code and needs a reload.
+that does not match the version you expect, Chrome is still running the old code and
+needs a reload.
 
 ## Set up, once
 

@@ -13,13 +13,21 @@
 
 ## 安装
 
+**[前往 Chrome 应用商店安装](https://chromewebstore.google.com/detail/mfhahobcbmmhpfjmbbijdglkmafapipe)** ——
+一次点击，之后由 Chrome 自动更新。
+
+<details>
+<summary>或者加载已解压的版本：想跑某个特定版本、或自己构建时用</summary>
+
 从 [Releases](https://github.com/dong845/marketfit-job-lens/releases) 下载最新的
 `marketfit-job-lens-*.zip`，解压后：
 
 `chrome://extensions` → 打开**开发者模式** → **加载已解压的扩展程序** → 选择解压出来的
 文件夹。
 
-点击扩展图标打开侧边栏。标题旁会显示当前加载的版本号——如果它和你刚装的版本对不上，说明
+</details>
+
+点击扩展图标打开侧边栏。标题旁会显示当前加载的版本号——如果它和你预期的版本对不上，说明
 Chrome 还在跑旧代码，需要重新加载。
 
 ## 第一次设置
