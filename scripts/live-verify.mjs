@@ -21,10 +21,17 @@
  * The key is read from the environment, never written anywhere, and never printed.
  * The CV and job text are sent to the provider you are testing and to nobody else,
  * exactly as the panel would send them; their contents are never printed either.
+ *
+ * `--transport curl` sends over curl instead of Node's fetch. Behind an HTTPS proxy
+ * that is the difference between running this check and not: fetch ignores
+ * HTTP_PROXY, so it never reaches the provider, and what comes back is an error from
+ * whatever intercepted it — indistinguishable, at this level, from the provider
+ * rejecting the request. See scripts/curl-transport.mjs.
  */
 import { readFileSync } from "node:fs";
 import { createDirectApiClient } from "../src/ai/directApiClient.js";
 import { MODELS, modelsForProvider } from "../src/ai/models.js";
+import { curlFetch } from "./curl-transport.mjs";
 
 // Enough shape for the request to be valid and the model to have something to do.
 // Not enough length to measure against — see the warning above.
@@ -83,6 +90,15 @@ for (const model of models) {
     process.exit(2);
   }
 }
+
+// Named, not guessed. A transport that silently fell back would report the network's
+// answer as the provider's, which is the one confusion this flag exists to end.
+if (args.transport && args.transport !== "curl" && args.transport !== "fetch") {
+  console.error(`Unknown transport: ${args.transport} (expected "fetch" or "curl")`);
+  process.exit(2);
+}
+const transport = args.transport === "curl" ? curlFetch() : globalThis.fetch;
+if (args.transport === "curl") console.log("Sending over curl.\n");
 
 console.log(`CV ${cv.length} chars · job ${jd.length} chars · ${models.length * efforts.length} run(s)\n`);
 
@@ -152,8 +168,8 @@ async function run(model, effort) {
 }
 
 /**
- * The real fetch, wrapped to time the first byte and — when sweeping — to rewrite the
- * effort level on the way out.
+ * The chosen transport, wrapped to time the first byte and — when sweeping — to
+ * rewrite the effort level on the way out.
  *
  * Rewriting here rather than in models.js is deliberate: the point of this script is
  * to exercise the shipped path, and editing the registry to try a setting would mean
@@ -169,7 +185,7 @@ function instrumentedFetch(timing, startedAt, effort) {
       if (parsed.output_config) parsed.output_config.effort = effort;
       body = JSON.stringify(parsed);
     }
-    const response = await fetch(url, { ...options, body });
+    const response = await transport(url, { ...options, body });
     if (!response.body) return response;
     const source = response.body.getReader();
     return {
