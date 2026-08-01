@@ -502,8 +502,26 @@ export function parseTaskRequest(value) {
 }
 
 export function parseAgentEvidence(value, request) {
-  const result = object(value, "Provider output must be a JSON object.");
-  const overview = object(result.overview, "overview must be an object.");
+  // OUTPUT_UNTRUSTED rather than SCHEMA_INVALID, because this is the provider's reply.
+  // SCHEMA_INVALID has exactly one sentence — "MarketFit could not build a valid
+  // request from this job and CV" — and it describes assembling the request, which
+  // happens before anything is sent. Borrowing it here told people their CV and the
+  // posting were unusable when the truth was that the model had answered oddly, so
+  // they edited inputs that were never wrong, after paying for the call. The reply
+  // that is not JSON at all already reports OUTPUT_UNTRUSTED; a reply that is JSON of
+  // the wrong shape is the same failure one step later.
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new BridgeError("OUTPUT_UNTRUSTED", "Provider output must be a JSON object.");
+  }
+  const result = value;
+  // Absent is an omission, exactly as it is for every list below. Nothing but the
+  // prompt keeps this block present on a model with no structured-output mode — both
+  // remaining Anthropic models predate it — and textBlock() already renders a missing
+  // narrative as nothing at all. Refusing here made the parser stricter than the view
+  // it feeds, and charged a whole analysis for one absent sentence.
+  const overview = result.overview && typeof result.overview === "object" && !Array.isArray(result.overview)
+    ? result.overview
+    : {};
   // A missing list is an omission, not a corrupt reply. Four of the selectable
   // models have no structured-output mode and follow the schema only because the
   // prompt shows it, so rejecting the whole analysis because one list of eight was
@@ -579,9 +597,13 @@ export function parseAgentEvidence(value, request) {
     recommendation: parseRecommendation(result.recommendation),
     statedConditions: parseStatedConditions(result.statedConditions, request),
     overview: {
-      jobFocus: outputText(overview.jobFocus, "overview.jobFocus", FIELD_LIMITS.narrative),
-      candidatePositioning: outputText(overview.candidatePositioning, "overview.candidatePositioning", FIELD_LIMITS.narrative),
-      fitNarrative: outputText(overview.fitNarrative, "overview.fitNarrative", FIELD_LIMITS.narrative),
+      // softText, not outputText: these three enrich the answer rather than constitute
+      // it. A narrative the model wrote as nothing but a citation is emptied by our own
+      // withoutBlockIds, so outputText could fail an analysis on our cleanup rather
+      // than on anything the model got wrong.
+      jobFocus: softText(overview.jobFocus, FIELD_LIMITS.narrative),
+      candidatePositioning: softText(overview.candidatePositioning, FIELD_LIMITS.narrative),
+      fitNarrative: softText(overview.fitNarrative, FIELD_LIMITS.narrative),
       levelComparison: parseLevelComparison(overview.levelComparison),
       evidence: parseEvidenceList(overview.evidence, request, "overview.evidence", RESULT_LIMITS.overviewEvidence)
     },

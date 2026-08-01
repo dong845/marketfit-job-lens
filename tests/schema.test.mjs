@@ -107,10 +107,48 @@ test("agent evidence drops fabricated evidence IDs without rejecting the full re
   assert.equal(parsed.requirements[0].evidence.some((item) => item.ref === "JD-999"), false);
 });
 
-test("agent evidence rejects an incomplete full-CV/JD analysis", () => {
+test("a missing overview costs the overview, not the analysis", () => {
+  // This used to throw, and was asserted to. It was the last block still trading a
+  // whole paid analysis for one absent field — the same trade already reversed above
+  // for list caps, length caps and empty rows. Both remaining Anthropic models
+  // predate structured outputs, so nothing but the prompt keeps overview present,
+  // and claude-opus-4-6 was seen dropping it against a real posting. textBlock()
+  // already renders an absent narrative as nothing, so the parser was refusing what
+  // the view it feeds is built to handle.
   const evidence = validEvidence();
   delete evidence.overview;
-  assert.throws(() => parseAgentEvidence(evidence, apiRequest()), (error) => error instanceof BridgeError && error.code === "SCHEMA_INVALID");
+  const parsed = parseAgentEvidence(evidence, apiRequest());
+  assert.equal(parsed.overview.jobFocus, "");
+  assert.ok(parsed.requirements.length, "the rest of the analysis is still delivered");
+  assert.ok(parsed.suggestedActions.length);
+});
+
+test("one absent narrative costs that narrative only", () => {
+  const evidence = validEvidence();
+  delete evidence.overview.fitNarrative;
+  // Only a citation: withoutBlockIds strips it to nothing, so the model answered and
+  // our own cleanup produced the empty value. That must not cost the analysis either.
+  evidence.overview.candidatePositioning = "（JD-001）";
+  const parsed = parseAgentEvidence(evidence, apiRequest());
+  assert.equal(parsed.overview.fitNarrative, "");
+  assert.equal(parsed.overview.candidatePositioning, "");
+  assert.match(parsed.overview.jobFocus, /reliable Python services/);
+  assert.ok(parsed.requirements.length);
+});
+
+test("a reply that is not an object blames the model, not the CV", () => {
+  // SCHEMA_INVALID's only sentence is "MarketFit could not build a valid request from
+  // this job and CV" — a request-assembly failure. Reusing it for a provider's
+  // malformed reply sent the reader off to edit a CV that was never the problem,
+  // after paying for the answer. OUTPUT_UNTRUSTED already carries the honest sentence
+  // in both locales and already means exactly this.
+  for (const wrong of [["not", "an", "object"], "a bare string", 42, null]) {
+    assert.throws(
+      () => parseAgentEvidence(wrong, apiRequest()),
+      (error) => error instanceof BridgeError && error.code === "OUTPUT_UNTRUSTED",
+      `${JSON.stringify(wrong)} must not be reported as a bad request`
+    );
+  }
 });
 
 test("agent evidence preserves narrative sections when one optional citation is invalid", () => {
