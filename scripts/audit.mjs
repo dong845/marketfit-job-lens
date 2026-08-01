@@ -158,10 +158,26 @@ for (const f of consumers) {
 ok.push(`i18n: ${en.size} keys, en/zh in sync`);
 
 // ---- 5. no secrets, debug output, or unfinished markers in shipped code
+// Every source file, not just the extension's. The secret check used to run over
+// src/ alone, which left out the one place a key is actually handled — live-verify
+// reads ANTHROPIC_API_KEY and is exactly where someone debugging pastes a real one
+// "just for this run". The console and eval rules stay scoped to shipped code, which
+// is what extensionFiles has always been for; until now it guarded a loop that could
+// not reach anything else, so the distinction never did any work.
 const extensionFiles = jsFiles;
-for (const file of jsFiles) {
+for (const file of allSources) {
   const src = readFileSync(file, "utf8");
-  if (/sk-[a-zA-Z0-9]{20,}|api[_-]?key\s*[:=]\s*["'][^"']{20,}/i.test(src)) fail.push(`${rel(file)}: possible hardcoded secret`);
+  // Two faults, opposite directions, found by planting a key and watching nothing
+  // happen. sk-[a-zA-Z0-9]{20,} wants twenty unbroken alphanumerics after "sk-",
+  // which no Anthropic key has: they read sk-ant-api03-…, and the run breaks at the
+  // third character. All three providers this extension talks to issue sk- keys with
+  // hyphens and underscores in them, so the class has to allow those — otherwise the
+  // one check standing between a pasted key and a public repository matches nothing
+  // it was put there for. Meanwhile the looser half flagged apiKey: "session-smoke-
+  // api-key", a placeholder with nothing to leak, and a gate that cries wolf on the
+  // repo's own fixtures is a gate someone eventually switches off. Requiring a digit
+  // in the value keeps every real key — they all carry them — and drops that.
+  if (/sk-[A-Za-z0-9_-]{20,}|api[_-]?key\s*[:=]\s*["'](?=[^"']*\d)[^"']{20,}/i.test(src)) fail.push(`${rel(file)}: possible hardcoded secret`);
   if (extensionFiles.includes(file) && /console\.(log|debug|info)\(/.test(src)) warn.push(`${rel(file)}: console output in extension code`);
   if (/\bTODO\b|\bFIXME\b|\bXXX\b/.test(src)) warn.push(`${rel(file)}: unfinished marker`);
   if (/\beval\(|new Function\(/.test(src)) fail.push(`${rel(file)}: dynamic code execution`);
