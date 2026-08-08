@@ -131,6 +131,35 @@ test("the U.S.-at-end-of-string and non-ASCII-boundary regex fixes still work", 
   assert.equal(resolveMarket("Amsterdam, België"), null);
 });
 
+// The "bare Holland is ambiguous with Holland, Michigan" check generalizes to every
+// Latin-script own-country token with a real, unrelated namesake: "China" is China
+// Lake CA, China Grove NC, China, ME and China Spring TX; "Nederland" is a real
+// Texas and Colorado town; "NL" is Canada Post's abbreviation for Newfoundland and
+// Labrador. None of these may confirm a market — not even to make it match at all —
+// without an independent signal (a city, or an unambiguous own-country spelling)
+// also present in the string. Every one of these previously resolved to a market;
+// all must now resolve to nothing.
+test("a Latin-script own-country token needs independent corroboration, not just its own presence", () => {
+  for (const location of [
+    "China Lake, CA", "China Grove, NC", "China, ME", "China Spring, TX",
+    "Nederland, TX", "Nederland, CO", "Nederland, TX 77627",
+    "St. John's, NL", "Corner Brook, NL"
+  ]) {
+    assert.equal(resolveMarket(location), null, location);
+  }
+});
+
+// A comma is not the only delimiter a real posting uses for a region code: some
+// parenthesise it as a gloss on the city name, and some just leave a bare postal
+// code where a comma might otherwise go. Both must count as a delimiter slot the
+// same way a trailing comma-separated code does, so a genuine US collision behind
+// either spelling is still caught.
+test("the delimiter slot also covers a parenthesised code and one before a trailing postal code", () => {
+  for (const location of ["Amsterdam (NY)", "Holland (MI)", "Amsterdam NY 12010"]) {
+    assert.equal(resolveMarket(location), null, location);
+  }
+});
+
 test("a non-string location resolves to nothing", () => {
   for (const location of [undefined, null, 42, {}]) {
     assert.equal(resolveMarket(location), null, JSON.stringify(location));

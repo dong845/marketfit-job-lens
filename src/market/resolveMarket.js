@@ -34,9 +34,9 @@ const SEPARATE_MARKETS = [
 ];
 
 // The matched market's own country/region name. Shared between MARKET_PATTERNS
-// (which decides *whether* a market matched at all) and EXPLICIT_COUNTRY_NAMES
-// (which decides whether that match is trustworthy enough to overrule a stray
-// two-letter code — see the "Rule 1" comment below).
+// (which decides *whether* a market matched at all), EXPLICIT_COUNTRY_NAMES (the
+// subset of that decision available to overrule a stray two-letter code — "Rule 1"
+// below), and NEEDS_CORROBORATION (which of these patterns cannot be trusted alone).
 const CHINA_PATTERN = /\bchina\b/i;
 const PRC_PATTERN = /\bp\.?r\.?c\.?\b/i;
 const CHINA_HANS_PATTERN = /中国/;
@@ -164,18 +164,27 @@ const CONFLICTING_COUNTRY_NAMES = [
 /**
  * The two-letter codes that collide with ordinary English words — every US state
  * postal abbreviation, plus the bare country code "US" — matched only where a code
- * actually reads as a code: immediately after a comma (optionally with whitespace),
- * or as the last standalone token in the string ("Rule 2"). A previous version of
- * this file tried to make the same distinction by capitalisation (a lowercase form
- * is "usually" the word, an uppercase form "usually" the code) and got both
- * directions wrong: "rotterdam, ny" is a lowercase code that still meant the region,
- * and "AMSTERDAM OR ROTTERDAM" is an all-caps word that never meant Oregon. Position
- * is what actually distinguishes them — a location field puts a real region code
- * right after a comma or at the end, not floating mid-phrase — so matching is
- * case-insensitive throughout and the slot does the discriminating instead.
+ * actually reads as a code ("Rule 2"): immediately after a comma (optionally with
+ * whitespace); as the last standalone token in the string; parenthesised, as postings
+ * that already spelled out the city sometimes add the code as a gloss ("Amsterdam
+ * (NY)"); or followed by a trailing postal code ("Amsterdam NY 12010") — a comma is
+ * not the only delimiter a real posting uses. A previous version of this file tried
+ * to make the same distinction by capitalisation (a lowercase form is "usually" the
+ * word, an uppercase form "usually" the code) and got both directions wrong:
+ * "rotterdam, ny" is a lowercase code that still meant the region, and "AMSTERDAM OR
+ * ROTTERDAM" is an all-caps word that never meant Oregon. Position is what actually
+ * distinguishes them — a location field puts a real region code in one of these
+ * slots, not floating mid-phrase — so matching is case-insensitive throughout and
+ * the slot does the discriminating instead.
  */
 const AMBIGUOUS_REGION_PATTERNS = [...US_STATES.map(([, abbr]) => abbr), "US"].map(
-  (abbr) => new RegExp(`,\\s*${abbr}\\b|\\b${abbr}\\s*$`, "i")
+  (abbr) => new RegExp(
+    `,\\s*${abbr}\\b` + // "Rotterdam, NY"
+    `|\\b${abbr}\\s*$` + // "Rotterdam NY"
+    `|\\(\\s*${abbr}\\s*\\)` + // "Amsterdam (NY)"
+    `|\\b${abbr}\\s+\\d[\\d-]*\\s*$`, // "Amsterdam NY 12010"
+    "i"
+  )
 );
 
 /**
@@ -187,28 +196,64 @@ const AMBIGUOUS_REGION_PATTERNS = [...US_STATES.map(([, abbr]) => abbr), "US"].m
  * "Netherlands" outright, and an explicit country name is not the kind of thing a
  * two-letter code gets to contradict. The same reasoning covers "Haarlem, NH,
  * Netherlands" (NH = Noord-Holland) and "Utrecht, UT, NL" (UT = Utrecht province).
+ * Not every entry here is equally trustworthy on its own — see NEEDS_CORROBORATION.
  */
 const EXPLICIT_COUNTRY_NAMES = Object.freeze({
   cn: [CHINA_PATTERN, PRC_PATTERN, CHINA_HANS_PATTERN, CHINA_HANT_PATTERN],
-  nl_weu: [NETHERLANDS_PATTERN, NEDERLAND_PATTERN, NL_PATTERN, NL_HANS_PATTERN, NL_HANT_PATTERN]
+  nl_weu: [NETHERLANDS_PATTERN, NEDERLAND_PATTERN, HOLLAND_PATTERN, NL_PATTERN, NL_HANS_PATTERN, NL_HANT_PATTERN]
 });
 
-// Bare "Holland" also names the country, but "Holland, MI" is a real Michigan city,
-// and unlike "Netherlands" or "NL" the word alone cannot tell the two apart. It only
-// counts as the country name when something else in the string is independently
-// Dutch too — another MARKET_PATTERNS.nl_weu hit — so "Holland, MI" (no other Dutch
-// signal) still resolves to nothing, while "Amsterdam, Holland, FL" (Amsterdam is
-// unambiguous) is allowed to read "Holland" as the country and let it confirm nl_weu.
+/**
+ * Own-country tokens whose Latin-script spelling is *also* a real, unrelated place
+ * name, the same problem "Holland" has with Holland, Michigan: "China" is China
+ * Lake CA, China Grove NC, China, ME and China Spring TX; "Nederland" is a real
+ * Texas and Colorado town; "NL" is Canada Post's abbreviation for Newfoundland and
+ * Labrador, printed on every Canadian job board. None of them can be trusted alone —
+ * neither to make a market match in the first place, nor to win Rule 1 — the way a
+ * city name or an unambiguous spelling can. "Netherlands" itself stays out of this
+ * list deliberately: no real English-language place is plainly named "Netherlands"
+ * the way "Nederland, TX" or "China, ME" exist. ("Netherlands Antilles" is a
+ * different, pre-existing substring-collision issue — the same class as "Utrecht,
+ * South Africa" — not the case this list exists to catch.) The CJK spellings and PRC
+ * need no entry either: nothing else on a US or Canadian job board reads as 荷兰,
+ * 荷蘭, 中国, 中國 or "P.R.C.".
+ */
+const NEEDS_CORROBORATION = Object.freeze({
+  cn: [CHINA_PATTERN],
+  nl_weu: [HOLLAND_PATTERN, NEDERLAND_PATTERN, NL_PATTERN]
+});
+
+// True if `pattern` matches the location and, when it is one of the collision-prone
+// tokens above, an INDEPENDENT signal for the same market also appears — a city from
+// MARKET_PATTERNS[market], or a different, unambiguous own-country spelling. A
+// second collision-prone token does not count as that independent signal: two
+// tokens that are each individually as likely to be the other place do not add up
+// to real evidence, only to a longer coincidence.
+function isConfirmedBy(location, market, pattern) {
+  if (!pattern.test(location)) return false;
+  if (!NEEDS_CORROBORATION[market].includes(pattern)) return true;
+  return MARKET_PATTERNS[market].some(
+    (other) => !NEEDS_CORROBORATION[market].includes(other) && other.test(location)
+  );
+}
+
+// Rule 1: does the location name the matched market's own country outright, with
+// enough independent backing (see isConfirmedBy) to trust it?
 function namesExplicitCountry(location, market) {
-  if (EXPLICIT_COUNTRY_NAMES[market].some((pattern) => pattern.test(location))) return true;
-  if (market !== "nl_weu" || !HOLLAND_PATTERN.test(location)) return false;
-  return MARKET_PATTERNS.nl_weu.some((pattern) => pattern !== HOLLAND_PATTERN && pattern.test(location));
+  return EXPLICIT_COUNTRY_NAMES[market].some((pattern) => isConfirmedBy(location, market, pattern));
 }
 
 export function resolveMarket(location) {
   if (typeof location !== "string" || !location.trim()) return null;
   if (SEPARATE_MARKETS.some((pattern) => pattern.test(location))) return null;
-  const matched = MARKET_KEYS.filter((key) => MARKET_PATTERNS[key].some((pattern) => pattern.test(location)));
+  // A collision-prone own-country token (see NEEDS_CORROBORATION) does not count as
+  // a match by itself — the same corroboration rule that gates Rule 1 below also
+  // gates whether the market is considered matched at all, so "China Lake, CA" and
+  // "St. John's, NL" (Newfoundland and Labrador) never reach `cn` / `nl_weu` in the
+  // first place, rather than matching and then hoping something downstream vetoes them.
+  const matched = MARKET_KEYS.filter((key) =>
+    MARKET_PATTERNS[key].some((pattern) => isConfirmedBy(location, key, pattern))
+  );
   // Two markets in one string is a dual-site or a remote posting spanning both, and
   // there is no answer to give. Picking the first would be a guess presented as a fact.
   if (matched.length !== 1) return null;
