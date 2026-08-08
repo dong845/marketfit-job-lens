@@ -76,6 +76,61 @@ test("a plain city name with no conflicting country still resolves", () => {
   assert.equal(resolveMarket("Shanghai, China"), "cn");
 });
 
+// A two-letter US postal code was once told apart from an ordinary English word by
+// capitalisation, and that got both directions wrong: a lowercase code in a
+// delimiter slot ("rotterdam, ny") still meant the region, and an all-caps word out
+// of one ("AMSTERDAM OR ROTTERDAM") never meant Oregon. Position replaced case as
+// the discriminator, so every one of these must resolve exactly as commented.
+test("a region code only conflicts in a delimiter slot, regardless of case", () => {
+  // Under-blocks: the code names a real US place sharing a name with a Dutch one,
+  // and sits right after a comma or at the end — a genuine conflict, case aside.
+  for (const location of ["rotterdam, ny", "amsterdam, ny", "amsterdam, ny, us", "holland, mi", "Holland, MI"]) {
+    assert.equal(resolveMarket(location), null, location);
+  }
+  // Over-blocks: the "code" is an ordinary word floating mid-string, not in a
+  // delimiter slot, so it never should have been read as a region in the first place.
+  for (const location of ["AMSTERDAM OR ROTTERDAM", "REMOTE IN THE NETHERLANDS"]) {
+    assert.equal(resolveMarket(location), "nl_weu", location);
+  }
+});
+
+// Rule 1: the matched market's own country, printed outright, outweighs a
+// two-letter code that merely happens to collide with a US state abbreviation. FL
+// here is Flevoland, NH is Noord-Holland, UT is Utrecht province — real Dutch
+// regions, not the US states of the same postal code — and "Netherlands"/"NL" is
+// direct enough evidence that the code should not get to veto the match.
+test("an explicit country name outweighs a same-string region-code collision", () => {
+  for (const location of ["Lelystad, FL, Netherlands", "Haarlem, NH, Netherlands", "Utrecht, UT, NL"]) {
+    assert.equal(resolveMarket(location), "nl_weu", location);
+  }
+});
+
+// A different, unambiguous country name is not a collision Rule 1 can rescue: "UK"
+// is never an ordinary English word the way a lowercase state code can be, so it
+// keeps vetoing even though "China" is also printed in the same string — the two
+// signals flatly contradict each other, and null is still the only honest answer.
+test("a genuinely different country name still vetoes even with an explicit match elsewhere", () => {
+  assert.equal(resolveMarket("London, UK — China team"), null);
+});
+
+// Bare "Holland" is ambiguous with Holland, Michigan, so it only counts as the
+// country name (Rule 1) when something else in the string is independently Dutch.
+// "Holland, MI" alone has no such corroboration and must still resolve to nothing
+// (already covered above); "Amsterdam, Holland, FL" has Amsterdam, so "Holland" is
+// read as the country and the FL/Flevoland-vs-Florida collision is rescued.
+test("bare Holland counts as the country name only when corroborated elsewhere in the string", () => {
+  assert.equal(resolveMarket("Amsterdam, Holland, FL"), "nl_weu");
+});
+
+// Two regex-correctness fixes that predate this change and have to keep working:
+// \b fails right after a literal "." at the end of a string (both sides read as
+// non-word), so the U.S. pattern uses (?!\w) instead; and JS's default \w excludes
+// "ë", so \b right before it never fires and the België pattern is anchored without one.
+test("the U.S.-at-end-of-string and non-ASCII-boundary regex fixes still work", () => {
+  assert.equal(resolveMarket("Amsterdam, U.S."), null);
+  assert.equal(resolveMarket("Amsterdam, België"), null);
+});
+
 test("a non-string location resolves to nothing", () => {
   for (const location of [undefined, null, 42, {}]) {
     assert.equal(resolveMarket(location), null, JSON.stringify(location));
