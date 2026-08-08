@@ -542,7 +542,7 @@ const ALWAYS_SENT = [
   ["who answers", /Every open question must say who holds the answer/],
   ["thin CV entries are yours", /Never file a thin CV entry under employer/],
   ["one to-do list", /suggestedActions is the single authoritative to-do list/],
-  ["screening feeds the plan", /a screening term the CV states in other words must appear there exactly once/],
+  ["suggestedActions consolidates screening and market notes", /a screening term the CV states in other words must appear there exactly once/],
   ["block IDs stay out of prose", /Block IDs belong in the evidence arrays and nowhere else/],
   ["caps", /Prefer fewer, well-evidenced items over padding/]
 ];
