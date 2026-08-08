@@ -62,6 +62,7 @@ Then read down:
 | **Conditions the employer states** | Their own sentence, plus the question that settles it — send that sentence as written |
 | **Requirements** | Each tagged required/preferred and met/partial/not met, hard filters first |
 | **Whether your CV gets read** | The same posting read the other way — not can you do it, but does your CV contain the words a recruiter searches. A term missing beside a requirement you meet is the line worth having |
+| **What this market also weighs** | Hiring conventions of the employer's market that the posting never states, and where your CV stands against each. Written by hand and dated, shown only for the markets the table covers — the model places your CV against them, it does not write them |
 | **Gaps to close** | With *how* to close each, and which cannot be closed before applying |
 | **What a screener may hesitate over** | What the CV raises about your history whatever the job — an unexplained break, several short tenures, a claim with no work behind it. Most cannot be fixed, so each comes with the honest thing to say |
 | **Do this next** | The whole plan, grouped by when and numbered. Everything asked of you appears here once |
