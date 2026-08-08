@@ -25,7 +25,7 @@ import { MARKET_KEYS } from "./conventions.js";
  * runs before any match, so a substring cannot fold one market into another.
  */
 const SEPARATE_MARKETS = [
-  /\bhong\s*kong\b/i, /香港/,
+  /\bhong\s*kong\b/i, /\bhk\b/i, /香港/,
   /\btaiwan\b/i, /\btaipei\b/i, /台灣/, /台湾/, /台北/,
   /\bmacau\b/i, /\bmacao\b/i, /澳門/, /澳门/
 ];
@@ -69,11 +69,79 @@ const MARKET_PATTERNS = Object.freeze({
   ]
 });
 
+// Every US state, as [full name, postal abbreviation]. Amsterdam, NY and Rotterdam,
+// NY are real US towns, and Holland, MI is a real US city — three of the nl_weu city
+// patterns above collide with an actual place in a market this table says nothing
+// about. The abbreviation is matched case-sensitively (no /i) because a lowercase
+// two-letter form is usually an ordinary word ("in", "or", "co"), not a postal code;
+// the full name is matched case-insensitively because "Texas" has no such collision.
+const US_STATES = [
+  ["Alabama", "AL"], ["Alaska", "AK"], ["Arizona", "AZ"], ["Arkansas", "AR"],
+  ["California", "CA"], ["Colorado", "CO"], ["Connecticut", "CT"], ["Delaware", "DE"],
+  ["Florida", "FL"], ["Georgia", "GA"], ["Hawaii", "HI"], ["Idaho", "ID"],
+  ["Illinois", "IL"], ["Indiana", "IN"], ["Iowa", "IA"], ["Kansas", "KS"],
+  ["Kentucky", "KY"], ["Louisiana", "LA"], ["Maine", "ME"], ["Maryland", "MD"],
+  ["Massachusetts", "MA"], ["Michigan", "MI"], ["Minnesota", "MN"], ["Mississippi", "MS"],
+  ["Missouri", "MO"], ["Montana", "MT"], ["Nebraska", "NE"], ["Nevada", "NV"],
+  ["New Hampshire", "NH"], ["New Jersey", "NJ"], ["New Mexico", "NM"], ["New York", "NY"],
+  ["North Carolina", "NC"], ["North Dakota", "ND"], ["Ohio", "OH"], ["Oklahoma", "OK"],
+  ["Oregon", "OR"], ["Pennsylvania", "PA"], ["Rhode Island", "RI"], ["South Carolina", "SC"],
+  ["South Dakota", "SD"], ["Tennessee", "TN"], ["Texas", "TX"], ["Utah", "UT"],
+  ["Vermont", "VT"], ["Virginia", "VA"], ["Washington", "WA"], ["West Virginia", "WV"],
+  ["Wisconsin", "WI"], ["Wyoming", "WY"]
+];
+
+/**
+ * Countries and regions that are none of the markets this table covers.
+ *
+ * A city pattern above is a substring match, and a substring cannot tell "Amsterdam"
+ * the Dutch capital from "Amsterdam, New York" or "London, UK — China team" from an
+ * actual China posting. Rather than enumerate every country a city name might
+ * collide with, this list names the other side directly: if the location also names
+ * a country that is not the one the matched market belongs to, the match is not
+ * trustworthy, and null is safer than a guess dressed up as a fact. NL and CN's own
+ * names are deliberately absent — they are what MARKET_PATTERNS already matches on,
+ * and two real markets in one string is handled separately below.
+ */
+const CONFLICTING_COUNTRIES = [
+  // United States. The bare abbreviation is case-sensitive for the same reason the
+  // state abbreviations are: "us" is an ordinary English word, "US" is not.
+  /\busa\b/i, /\bu\.s\.a\.?(?!\w)/i, /\bunited states\b/i, /\bu\.s\.(?!\w)/i, /\bamerica\b/i, /\bUS\b/,
+  ...US_STATES.flatMap(([name, abbr]) => [new RegExp(`\\b${name}\\b`, "i"), new RegExp(`\\b${abbr}\\b`)]),
+  // United Kingdom
+  /\bUK\b/i, /\bu\.k\.(?!\w)/i, /\bunited kingdom\b/i, /\bengland\b/i, /\bbritain\b/i,
+  // Canada
+  /\bcanada\b/i,
+  // Germany
+  /\bgermany\b/i, /\bdeutschland\b/i,
+  // Belgium. The diacritic form is matched without \b: JS's default \w does not
+  // include "ë", so a boundary right before it never fires and the anchored form
+  // would silently never match — the same reason the CJK patterns above use none.
+  /\bbelgium\b/i, /\bbelgique\b/i, /\bbelgie\b/i, /belgië/i,
+  // France
+  /\bfrance\b/i,
+  // Australia
+  /\baustralia\b/i,
+  // India
+  /\bindia\b/i,
+  // Japan
+  /\bjapan\b/i,
+  // Korea
+  /\bkorea\b/i,
+  // Singapore
+  /\bsingapore\b/i
+];
+
 export function resolveMarket(location) {
   if (typeof location !== "string" || !location.trim()) return null;
   if (SEPARATE_MARKETS.some((pattern) => pattern.test(location))) return null;
   const matched = MARKET_KEYS.filter((key) => MARKET_PATTERNS[key].some((pattern) => pattern.test(location)));
   // Two markets in one string is a dual-site or a remote posting spanning both, and
   // there is no answer to give. Picking the first would be a guess presented as a fact.
-  return matched.length === 1 ? matched[0] : null;
+  if (matched.length !== 1) return null;
+  // A conflicting country name is the same kind of guess, just with the second market
+  // spelled out instead of matched by pattern — "Amsterdam, New York, USA" never
+  // mentions the Netherlands, but it is exactly as untrustworthy as a string that did.
+  if (CONFLICTING_COUNTRIES.some((pattern) => pattern.test(location))) return null;
+  return matched[0];
 }

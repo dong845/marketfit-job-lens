@@ -83,7 +83,7 @@ const CONVENTIONS = Object.freeze([
       en: "\"Dutch is a plus\" often describes a team whose day-to-day working language is Dutch. What the phrase means for this role is a question for the employer, not something to read off the posting.",
       zh: "「会荷兰语者优先」往往描述的是一个日常工作语言就是荷兰语的团队。这句话对本岗位到底意味着什么，应当去问雇主，而不是从启事里读出来。"
     },
-    appliesWhen: "The posting mentions Dutch or another local language, or says nothing about working language.",
+    appliesWhen: "The posting mentions Dutch or another local language, or says nothing about working language, and the posting does not already state the team's working language.",
     added: "2026-08-08",
     why: "The gap between the written requirement and the practice is the whole point, and no amount of re-reading the posting closes it."
   },
@@ -92,7 +92,7 @@ const CONVENTIONS = Object.freeze([
     market: "nl_weu",
     text: {
       en: "Most applications are expected to carry a motivation letter even where the posting does not ask for one.",
-      zh: "多数申请都被默认附有一封动机信，即使招聘启事并未要求。"
+      zh: "即使招聘启事没有要求，多数申请也默认要附一封动机信。"
     },
     appliesWhen: "always",
     added: "2026-08-08",
@@ -105,7 +105,7 @@ const CONVENTIONS = Object.freeze([
       en: "For regulated roles, formal recognition of a foreign degree is a separate procedure from holding the degree.",
       zh: "在受监管的岗位上，境外学位的对等认证是独立于「持有该学位」之外的一道手续。"
     },
-    appliesWhen: "The role is regulated, or requires a specific degree or professional registration.",
+    appliesWhen: "The role is regulated, or requires a specific degree or professional registration, and the posting does not itself state a licence or registration condition.",
     added: "2026-08-08",
     why: "A candidate who holds the degree reads the requirement as met, and the procedure surfaces after an offer rather than before one."
   },
@@ -114,7 +114,7 @@ const CONVENTIONS = Object.freeze([
     market: "nl_weu",
     text: {
       en: "References are generally contacted in practice at offer stage.",
-      zh: "推荐人在发放 offer 的阶段通常会被真的联系。"
+      zh: "到了发 offer 的阶段，推荐人通常是真的会被联系的。"
     },
     appliesWhen: "always",
     added: "2026-08-08",

@@ -306,7 +306,11 @@ function renderScreening(screening, locale) {
     <p class="meta">${escapeHtml(t(locale, "screeningNote"))}</p>${title}${list}</section>`;
 }
 
-const MARKET_NAME_KEY = { cn: "marketCn", nl_weu: "marketNlWeu" };
+// Exported so a test can assert every key MARKET_KEYS produces has a display name
+// here, in both locales — this map is not derived from MARKET_KEYS, so adding a
+// third market to conventions.js without adding a line here would otherwise render
+// "Common hiring conventions in ." with nothing in the pipeline to catch it.
+export const MARKET_NAME_KEY = { cn: "marketCn", nl_weu: "marketNlWeu" };
 
 /**
  * What the employer's market screens on that this posting never said.
@@ -329,13 +333,21 @@ function renderMarketNotes(notes, locale) {
     .map((note) => ({ note, convention: conventionById(note?.conventionId) }))
     .filter((row) => row.convention && row.note.cvStanding);
   if (!rows.length) return "";
+  // The market name is read off the first row only. That is safe because
+  // parseMarketNotes in src/ai/schema.js builds its allowed-id set from a single
+  // resolveMarket() result, so a mixed-market array can never reach here through the
+  // real pipeline — if that guard is ever loosened, this line has to change with it.
   const marketName = t(locale, MARKET_NAME_KEY[rows[0].convention.market] || "");
+  // Dated so the card can say when a human last reviewed it, not just that one did.
+  // The most recent added among the notes actually shown, not the whole table — a
+  // convention that did not apply this run should not backdate the ones that did.
+  const reviewed = rows.reduce((latest, row) => (row.convention.added > latest ? row.convention.added : latest), rows[0].convention.added);
   const items = rows.map(({ note, convention }) => `<li class="market-note">
       <p class="market-convention">${escapeHtml(convention.text[locale] || convention.text.en)}</p>
       <p class="market-standing"><strong>${escapeHtml(t(locale, "marketYourStanding"))}</strong> ${escapeHtml(note.cvStanding)}</p>
     </li>`).join("");
   return `<section class="result-card"><h3>${escapeHtml(t(locale, "marketConventions"))}</h3>
-    <p class="meta">${escapeHtml(format(locale, "marketConventionsNote", { market: marketName }))}</p>
+    <p class="meta">${escapeHtml(format(locale, "marketConventionsNote", { market: marketName, reviewed }))}</p>
     <ul class="market-list">${items}</ul></section>`;
 }
 

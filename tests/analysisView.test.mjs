@@ -490,6 +490,36 @@ test("the market card always says the conventions are not from this posting", ()
   }
 });
 
+// The meta line is the whole reason a market claim is allowed to sit beside twelve
+// evidence-cited cards. Without the reviewed date it reads with the same authority as
+// they do; the date is what tells the reader it is a person's table, not the model's.
+test("the market card names when the conventions were last reviewed, in both locales", () => {
+  for (const locale of ["en", "zh"]) {
+    const html = renderAnalysisHtml(evidenceFixture({
+      marketNotes: [{ conventionId: "cn-venue-names", cvStanding: "The CV names no venue.", evidence: [] }]
+    }), locale);
+    assert.match(html, /2026-08-08/, `${locale} card is missing the reviewed date`);
+  }
+});
+
+// resolveMarket only ever matches Dutch locations, and every convention filed under
+// nl_weu is Dutch-specific — nl-working-language is literally about the Dutch
+// language. "the Netherlands and Western Europe" claimed a footprint the resolver
+// and the table do not have.
+test("the nl_weu market renders as the Netherlands, not a wider region", () => {
+  const en = renderAnalysisHtml(evidenceFixture({
+    marketNotes: [{ conventionId: "nl-references-contacted", cvStanding: "No referees are listed.", evidence: [] }]
+  }), "en");
+  assert.match(en, /\bthe Netherlands\b/);
+  assert.equal(/Western Europe/.test(en), false);
+
+  const zh = renderAnalysisHtml(evidenceFixture({
+    marketNotes: [{ conventionId: "nl-references-contacted", cvStanding: "No referees are listed.", evidence: [] }]
+  }), "zh");
+  assert.match(zh, /荷兰/);
+  assert.equal(/荷兰及西欧/.test(zh), false);
+});
+
 test("no market notes means no card at all", () => {
   for (const marketNotes of [[], undefined]) {
     const html = renderAnalysisHtml(evidenceFixture({ marketNotes }), "en");
