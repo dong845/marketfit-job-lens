@@ -542,7 +542,7 @@ const ALWAYS_SENT = [
   ["who answers", /Every open question must say who holds the answer/],
   ["thin CV entries are yours", /Never file a thin CV entry under employer/],
   ["one to-do list", /suggestedActions is the single authoritative to-do list/],
-  ["screening feeds the plan", /a screening term the CV states in other words, or a market note's cvStanding must appear there exactly once/],
+  ["screening feeds the plan", /a screening term the CV states in other words must appear there exactly once/],
   ["block IDs stay out of prose", /Block IDs belong in the evidence arrays and nowhere else/],
   ["caps", /Prefer fewer, well-evidenced items over padding/]
 ];
@@ -828,6 +828,24 @@ test("the market instruction fences off the CV-layout rule and the plan", async 
   // suggestedActions stays the single authoritative to-do list, with market notes
   // named in its enumeration rather than carrying advice of their own.
   assert.match(prompt, /or a market note's cvStanding must appear there exactly once/);
+});
+
+// The suggestedActions sentence is always sent, but the market clause inside it
+// follows the same rule as the rest of the file: nothing to act on, nothing said.
+// Both directions are asserted here so reverting the interpolation back to an
+// unconditional clause — or dropping it entirely — fails one of the two halves.
+test("the market clause in suggestedActions travels only where a market resolved", async () => {
+  const { buildAnalyzePrompt } = await import("../src/ai/prompts.js");
+
+  const withMarket = buildAnalyzePrompt(marketRequest("Leiden, NL"));
+  assert.match(withMarket, /a screening term the CV states in other words, or a market note's cvStanding must appear there exactly once/);
+
+  for (const request of [apiRequest(), marketRequest(""), marketRequest("Remote"), marketRequest("Toronto, Canada")]) {
+    const prompt = buildAnalyzePrompt(request);
+    assert.equal(/market note/.test(prompt), false);
+    // The rest of the sentence still ships — only the market clause is missing.
+    assert.match(prompt, /an uncertainty whose answeredBy is you, or a screening term the CV states in other words must appear there exactly once/);
+  }
 });
 
 test("an absent or non-array marketNotes parses as empty", () => {
