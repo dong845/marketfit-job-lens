@@ -17,12 +17,15 @@ build if one is reintroduced.
 2. **Evidence blocks** — `src/ai/evidenceBlocks.js` splits the CV and job text
    into addressable `CV-nnn` / `JD-nnn` chunks. The model receives these blocks
    and may cite only their IDs, so it cannot invent a quote.
-3. **Request** — `src/ai/prompts.js` builds the prompt; the untrusted CV and
+3. **Market** — `src/market/resolveMarket.js` resolves `job.location` to a market
+   key or to `null`. On a hit, that market's conventions are added to the request
+   and become the only `conventionId` values the parser will accept back.
+4. **Request** — `src/ai/prompts.js` builds the prompt; the untrusted CV and
    job text are fenced and labelled as data, never instructions.
-4. **Validation** — `src/ai/schema.js` re-validates the reply: enum states,
+5. **Validation** — `src/ai/schema.js` re-validates the reply: enum states,
    list sizes, string lengths, and every evidence ref resolved back to a real
    block. An unresolvable ref is dropped rather than displayed.
-5. **Render** — `src/ui/analysisView.js` turns validated evidence into markup:
+6. **Render** — `src/ui/analysisView.js` turns validated evidence into markup:
    the verdict, the requirement-by-requirement comparison, the gaps and how to
    close them, and what to do next.
 
@@ -31,6 +34,35 @@ model honest — it may only cite block IDs that exist, and step 4 resolves each
 one back to real text and drops the rest — and that holds whether or not the
 quotes are printed. Printing them as well put a block of source text under every
 conclusion and buried the analysis.
+
+## Market conventions
+
+One section of the analysis is not derived from the CV or the posting.
+`src/market/resolveMarket.js` maps `job.location` to a market key, and
+`src/market/conventions.js` holds a hand-maintained, dated table of what that
+market screens on that postings routinely leave unsaid. When a market resolves,
+those conventions are injected into the prompt; the model returns only
+`{conventionId, cvStanding, evidence}`, and `parseAgentEvidence` drops any note
+whose `conventionId` was not injected on this request — the same mechanism that
+drops an unresolvable evidence ref.
+
+The convention text never makes a round trip through the model. The reader is
+shown the table's own wording, so the model cannot strengthen a "usually" into a
+"must", attach a number, or invent an entry. The only sentence it authors here is
+`cvStanding`, which cites CV blocks like every other analytical statement — which
+is why `AGENT_SYSTEM_POLICY` needs no exemption for this section.
+
+Nothing in this section reaches the verdict. `requirements`, `screening`,
+`verdict` and `effort` stay derived from the posting alone, and `marketNotes`
+feeds neither `requirementScore` nor any check in `src/ui/consistency.js`.
+
+`resolveMarket` returns `null` for an unrecognised location, a location naming two
+markets, and any market outside the table — and a `null` means the feature says
+nothing at all. Conventions carry no numbers (`scripts/static-check.mjs` fails the
+build on a digit in one) and name no protected trait. Nothing automated can check
+that a convention is *true*; `why` and `added` exist so a person can review it,
+which is why the table covers only markets the maintainer can verify from
+experience.
 
 ## Schemas
 
