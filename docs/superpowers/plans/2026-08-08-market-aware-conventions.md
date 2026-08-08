@@ -851,7 +851,10 @@ git commit -m "Ask where the CV stands against the market, where there is a mark
 - Modify: `src/ui/i18n.js` (five keys in `en`, five in `zh`)
 - Modify: `src/sidepanel/sidepanel.css` (after `.screening-word` at `:107`)
 - Modify: `src/report/report.css` (after `.screening-word` at `:59`)
+- Modify: `README.md` and `README.zh-CN.md` (one row each in the card table — see Step 6)
 - Test: `tests/analysisView.test.mjs` (append)
+
+**Missed when this plan was first written, added after Task 4's first run:** `scripts/audit.mjs:394-416` derives the card headings from `analysisView.js` itself and fails the build when either README omits one. That gate exists so a new user-visible card cannot ship undocumented, so the README rows belong to this task — the one that creates the card — not to Task 5.
 
 **Interfaces:**
 - Consumes: `conventionById(id)` from Task 1; `evidence.marketNotes` from Task 2.
@@ -1004,20 +1007,34 @@ In `src/report/report.css`, after `.screening-word` at `:59`:
 .market-standing { color: var(--muted); font-size: 13px; line-height: 1.55; margin-top: 4px; }
 ```
 
-- [ ] **Step 6: Run the test to verify it passes**
+- [ ] **Step 6: Document the new card in both READMEs**
+
+`scripts/audit.mjs` fails the build until both READMEs name the new heading verbatim. In `README.md`, add this row immediately after the `**Whether your CV gets read**` row:
+
+```markdown
+| **What this market also weighs** | Hiring conventions of the employer's market that the posting never states, and where your CV stands against each. Written by hand and dated, shown only for the markets the table covers — the model places your CV against them, it does not write them |
+```
+
+In `README.zh-CN.md`, add this row immediately after the `**你的简历能不能被读到**` row:
+
+```markdown
+| **这个市场还会看什么** | 雇主所在就业市场的通行招聘惯例——招聘启事里不写，但确实会被掂量——以及你的简历在每一条上的位置。惯例文本由人工撰写并标注日期，只在表内覆盖的市场出现；模型只负责把你的简历放到这些惯例前面，不负责写出惯例本身 |
+```
+
+- [ ] **Step 7: Run the test to verify it passes**
 
 Run: `node --test tests/analysisView.test.mjs`
 Expected: PASS.
 
-- [ ] **Step 7: Run the full check**
+- [ ] **Step 8: Run the full check**
 
 Run: `npm run check`
-Expected: PASS. `tests/language.test.mjs` compares the `en` and `zh` key sets — if it fails, a key was added to one block and not the other.
+Expected: PASS. `tests/language.test.mjs` compares the `en` and `zh` key sets — if it fails, a key was added to one block and not the other. `scripts/audit.mjs` fails until Step 6 has documented the heading in both READMEs.
 
-- [ ] **Step 8: Commit**
+- [ ] **Step 9: Commit**
 
 ```bash
-git add src/ui/analysisView.js src/ui/i18n.js src/sidepanel/sidepanel.css src/report/report.css tests/analysisView.test.mjs
+git add src/ui/analysisView.js src/ui/i18n.js src/sidepanel/sidepanel.css src/report/report.css README.md README.zh-CN.md tests/analysisView.test.mjs
 git commit -m "Show what the market weighs, and say it is not from this posting"
 ```
 
