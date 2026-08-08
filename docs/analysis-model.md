@@ -64,6 +64,30 @@ that a convention is *true*; `why` and `added` exist so a person can review it,
 which is why the table covers only markets the maintainer can verify from
 experience.
 
+### Known limitation: the resolver can still name the wrong market
+
+`resolveMarket` matches place names, and it has no notion that a place name may
+exist in more than one country. Guards exist for the collisions that are known —
+Hong Kong, Taiwan and Macau never resolve to the mainland; a conflicting country
+name or a region abbreviation in a delimiter slot suppresses a match; and an
+own-country token that is also a foreign place name (`China`, `Nederland`, `NL`,
+`Holland`) only counts when the string carries independent corroboration. Each of
+those is covered by a case in `tests/market.test.mjs`.
+
+What remains uncovered is any city in the pattern lists that is also a city
+somewhere else. Verified examples that resolve to the Dutch market and should
+not: `Utrecht, South Africa`, `Delft, Cape Town, South Africa`,
+`Groningen, Suriname`, `Wageningen, Suriname`, and strings where an ambiguous
+city launders corroboration for an ambiguous country token, such as
+`St. Johns, NL — Amsterdam Ave office`. A durable fix needs corroboration on
+city matches too, not only on country tokens — or a real gazetteer.
+
+This matters more here than a mis-parse elsewhere in the pipeline would. Every
+other conclusion the panel shows cites source text the reader can check; a market
+card cites nothing, so a wrong market reads exactly like a right one. Anyone
+extending the pattern lists should assume a new city name collides until they
+have checked that it does not.
+
 ## Schemas
 
 `AGENT_EVIDENCE_SCHEMA` in `src/ai/schema.js` is the single source of truth
