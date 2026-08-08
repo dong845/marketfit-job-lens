@@ -1,4 +1,6 @@
 import { resolveEvidenceRef } from "./evidenceBlocks.js";
+import { resolveMarket } from "../market/resolveMarket.js";
+import { conventionsFor } from "../market/conventions.js";
 
 const PROVIDERS = new Set(["openai-api", "anthropic-api", "deepseek-api"]);
 const MATCH_STATES = new Set(["strong", "partial", "gap", "no_evidence"]);
@@ -66,7 +68,11 @@ export const RESULT_LIMITS = Object.freeze({
   statedConditions: 4,
   evidencePerItem: 4,
   overviewEvidence: 6,
-  screeningTerms: 10
+  screeningTerms: 10,
+  // Short on purpose. These are conventions the posting never mentions, read after
+  // the reader already has a verdict and a plan; a long list of them turns the one
+  // section with no evidence behind it into the longest thing on the page.
+  marketNotes: 4
 });
 
 /**
@@ -123,7 +129,7 @@ export const VERDICTS = Object.freeze(["strong_fit", "worth_applying", "stretch"
 export const AGENT_EVIDENCE_SCHEMA = Object.freeze({
   type: "object",
   additionalProperties: false,
-  required: ["recommendation", "statedConditions", "overview", "requirements", "screening", "strengths", "gaps", "risks", "profileRisks", "resumeTailoring", "interviewFocus", "uncertainties", "suggestedActions"],
+  required: ["recommendation", "statedConditions", "overview", "requirements", "screening", "strengths", "gaps", "risks", "profileRisks", "resumeTailoring", "interviewFocus", "uncertainties", "suggestedActions", "marketNotes"],
   properties: {
     recommendation: {
       type: "object",
@@ -258,6 +264,32 @@ export const AGENT_EVIDENCE_SCHEMA = Object.freeze({
               evidence: { type: "array", minItems: 1, maxItems: 4, items: EVIDENCE_SCHEMA }
             }
           }
+        }
+      }
+    },
+    /**
+     * Where this CV stands against the conventions of the employer's market.
+     *
+     * The convention itself is not here and never comes back from the model —
+     * src/market/conventions.js owns that text and the view renders it verbatim. All
+     * that travels is which convention is being answered and what the CV shows
+     * against it, which keeps this field inside the same evidence contract as every
+     * other analytical statement: cvStanding cites CV blocks, and the market claim
+     * is not the model's to make.
+     */
+    marketNotes: {
+      type: "array",
+      maxItems: RESULT_LIMITS.marketNotes,
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["conventionId", "cvStanding", "evidence"],
+        properties: {
+          // A machine token, like a block ID: it is matched against the ids injected
+          // into this request and never shown to the reader.
+          conventionId: { type: "string", minLength: 1, maxLength: FIELD_LIMITS.shortLabel },
+          cvStanding: { type: "string", minLength: 1, maxLength: FIELD_LIMITS.prose },
+          evidence: { type: "array", maxItems: 4, items: EVIDENCE_SCHEMA }
         }
       }
     },
@@ -629,7 +661,10 @@ export function parseAgentEvidence(value, request) {
     resumeTailoring: parsed.resumeTailoring,
     interviewFocus: parsed.interviewFocus,
     uncertainties: parsed.uncertainties,
-    suggestedActions: parsed.suggestedActions
+    suggestedActions: parsed.suggestedActions,
+    // Outside `parsed` on purpose: that object is what the OUTPUT_NO_FINDINGS check
+    // above tests, and a reply carrying nothing but market notes is not an analysis.
+    marketNotes: parseMarketNotes(result.marketNotes, request)
   };
 }
 
@@ -912,6 +947,45 @@ function parseStatedConditions(value, request) {
         evidence: parseEvidenceList(item.evidence, request, "statedCondition.evidence", RESULT_LIMITS.evidencePerItem)
       }];
     } catch {
+      return [];
+    }
+  });
+}
+
+/**
+ * Market notes, kept only where the convention was injected into THIS request.
+ *
+ * This is the guard that makes the design safe, and it is deliberately in code
+ * rather than in the prompt. The prompt does not mention market notes at all when no
+ * market resolves — but a prompt that omits a subject is not a prompt that prevents
+ * it, and a model that answers anyway would be stating a market convention nobody
+ * wrote, with no evidence block behind it and nothing on screen to mark it as
+ * different from the rest of the analysis.
+ *
+ * Same mechanism as an evidence ref: an id that does not resolve is dropped rather
+ * than displayed. An unknown id, an id belonging to the other market, and an id on a
+ * posting with no market at all are all the same case here — not in the injected
+ * set, so not shown.
+ */
+function parseMarketNotes(value, request) {
+  if (!Array.isArray(value)) return [];
+  const market = resolveMarket(request.input.job.location);
+  const allowed = new Set(conventionsFor(market).map((item) => item.id));
+  if (!allowed.size) return [];
+  const seen = new Set();
+  return value.slice(0, RESULT_LIMITS.marketNotes).flatMap((item) => {
+    if (!item || typeof item !== "object" || !allowed.has(item.conventionId) || seen.has(item.conventionId)) return [];
+    try {
+      const note = {
+        conventionId: item.conventionId,
+        cvStanding: outputText(item.cvStanding, "marketNote.cvStanding", FIELD_LIMITS.prose),
+        evidence: parseEvidenceList(item.evidence, request, "marketNote.evidence", RESULT_LIMITS.evidencePerItem)
+      };
+      seen.add(item.conventionId);
+      return [note];
+    } catch {
+      // One malformed note costs that note, never the analysis — the rule perItem
+      // already applies to every other list.
       return [];
     }
   });

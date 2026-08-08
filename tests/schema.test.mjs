@@ -723,3 +723,104 @@ test("the analysis is found whatever the model wrapped it in", () => {
   // against the schema — which names the problem better than the extractor can.
   assert.deepEqual(parseJsonOutput(JSON.stringify({ foo: 1 })), { foo: 1 });
 });
+
+function marketRequest(location) {
+  return parseTaskRequest({
+    requestId: "market-1", taskType: "analyze_job", provider: "openai-api", privacyMode: "provider_cloud",
+    credential: { type: "session_api_key", apiKey: "session-test-api-key-123" },
+    input: {
+      resumeText: "Built Python services and published at MICCAI.",
+      job: { title: "Engineer", location, description: "Python required. Reconstruction research." },
+      candidate: {}
+    }
+  });
+}
+
+// A minimal reply that survives the no-findings check on its own, so each test below
+// isolates what it is actually about.
+function replyWith(marketNotes) {
+  return {
+    requirements: [{ name: "Python", level: "required", match: "strong", explanation: "Named directly in the CV.", evidence: [{ ref: "CV-001" }] }],
+    marketNotes
+  };
+}
+
+test("a market note whose convention was injected on this request survives", () => {
+  const parsed = parseAgentEvidence(replyWith([
+    { conventionId: "cn-venue-names", cvStanding: "The CV names MICCAI, so the venue filter would find it.", evidence: [{ ref: "CV-001" }] }
+  ]), marketRequest("Shanghai, China"));
+  assert.equal(parsed.marketNotes.length, 1);
+  assert.equal(parsed.marketNotes[0].conventionId, "cn-venue-names");
+  assert.match(parsed.marketNotes[0].cvStanding, /MICCAI/);
+});
+
+// The guard that makes the whole design safe. An id the model invented, or borrowed
+// from the other market, has no text behind it and would render as nothing at best.
+test("a market note whose convention was not injected is dropped", () => {
+  const invented = parseAgentEvidence(replyWith([
+    { conventionId: "cn-invented-convention", cvStanding: "Anything at all.", evidence: [{ ref: "CV-001" }] }
+  ]), marketRequest("Shanghai, China"));
+  assert.deepEqual(invented.marketNotes, []);
+
+  const wrongMarket = parseAgentEvidence(replyWith([
+    { conventionId: "nl-motivation-letter", cvStanding: "Anything at all.", evidence: [{ ref: "CV-001" }] }
+  ]), marketRequest("Shanghai, China"));
+  assert.deepEqual(wrongMarket.marketNotes, []);
+});
+
+// The prompt says nothing about market notes when no market resolves, but the prompt
+// is not the guard: with no market, no id is valid, so nothing can get through.
+test("no market resolves means no market note survives, whatever the model sent", () => {
+  const parsed = parseAgentEvidence(replyWith([
+    { conventionId: "cn-venue-names", cvStanding: "Real id, wrong posting.", evidence: [{ ref: "CV-001" }] },
+    { conventionId: "nl-motivation-letter", cvStanding: "Also real, also wrong.", evidence: [{ ref: "CV-001" }] }
+  ]), marketRequest("Toronto, Canada"));
+  assert.deepEqual(parsed.marketNotes, []);
+});
+
+test("a repeated convention id keeps only the first note", () => {
+  const parsed = parseAgentEvidence(replyWith([
+    { conventionId: "nl-motivation-letter", cvStanding: "First.", evidence: [{ ref: "CV-001" }] },
+    { conventionId: "nl-motivation-letter", cvStanding: "Second.", evidence: [{ ref: "CV-001" }] }
+  ]), marketRequest("Leiden, NL"));
+  assert.equal(parsed.marketNotes.length, 1);
+  assert.equal(parsed.marketNotes[0].cvStanding, "First.");
+});
+
+test("a malformed market note costs that note and not the analysis", () => {
+  const parsed = parseAgentEvidence(replyWith([
+    { conventionId: "nl-motivation-letter", cvStanding: "", evidence: [{ ref: "CV-001" }] },
+    { conventionId: "nl-references-contacted", cvStanding: "The CV lists no referees.", evidence: [{ ref: "CV-001" }] }
+  ]), marketRequest("Amsterdam"));
+  assert.equal(parsed.marketNotes.length, 1);
+  assert.equal(parsed.marketNotes[0].conventionId, "nl-references-contacted");
+  assert.equal(parsed.requirements.length, 1, "the rest of the analysis is unaffected");
+});
+
+test("an absent or non-array marketNotes parses as empty", () => {
+  for (const value of [undefined, null, "none", {}]) {
+    const reply = replyWith([]);
+    reply.marketNotes = value;
+    assert.deepEqual(parseAgentEvidence(reply, marketRequest("Amsterdam")).marketNotes, [], JSON.stringify(value));
+  }
+});
+
+// Market notes enrich an analysis; they do not constitute one. Counting them as a
+// finding would let a reply with nothing else in it render as a page of empty
+// sections, which is the failure OUTPUT_NO_FINDINGS exists to report.
+test("market notes alone are not a usable analysis", () => {
+  assert.throws(() => parseAgentEvidence({
+    marketNotes: [{ conventionId: "nl-motivation-letter", cvStanding: "No letter is mentioned.", evidence: [{ ref: "CV-001" }] }]
+  }, marketRequest("Amsterdam")), (error) => error instanceof BridgeError && error.code === "OUTPUT_NO_FINDINGS");
+});
+
+// Strict mode requires every property to be listed as required; an optional one is
+// rejected by the provider before the model ever sees the request.
+test("the schema lists marketNotes as required so strict mode accepts it", () => {
+  assert.ok(AGENT_EVIDENCE_SCHEMA.required.includes("marketNotes"));
+  assert.deepEqual(
+    Object.keys(AGENT_EVIDENCE_SCHEMA.properties).sort(),
+    [...AGENT_EVIDENCE_SCHEMA.required].sort(),
+    "OpenAI strict mode requires every property to also be required"
+  );
+});
