@@ -3,6 +3,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { MARKET_KEYS, conventionsFor } from "../src/market/conventions.js";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 const sourceFiles = collect(join(root, "src")).filter((file) => file.endsWith(".js"));
@@ -53,4 +54,17 @@ console.log(`Static checks passed for ${sourceFiles.length} extension modules`);
 
 function collect(directory) {
   return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => entry.isDirectory() ? collect(join(directory, entry.name)) : [join(directory, entry.name)]);
+}
+
+// The conventions table is the one claim in the analysis with no evidence block
+// behind it, so the one class of falsehood a machine can see is checked here rather
+// than asked for in prose: a fabricated statistic. Nothing automated can check that
+// a convention is TRUE — `why` and `added` exist so a person can review it — but a
+// number in one of these could only have been invented, since no source is cited.
+for (const marketKey of MARKET_KEYS) {
+  for (const convention of conventionsFor(marketKey)) {
+    for (const field of [convention.text.en, convention.text.zh, convention.appliesWhen]) {
+      assert.equal(/[0-9%]/.test(field), false, `Market convention ${convention.id} states a number: ${field}`);
+    }
+  }
 }
