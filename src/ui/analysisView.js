@@ -1,6 +1,7 @@
 import { format, t } from "./i18n.js";
 import { conditionAlignment, overallAlignment } from "./workAuthorization.js";
 import { looseKnockouts, uncoveredGapActions, verdictEffortConflict } from "./consistency.js";
+import { conventionById } from "../market/conventions.js";
 
 /**
  * Turns validated agent evidence into the analysis markup.
@@ -37,6 +38,10 @@ export function renderAnalysisHtml(evidence, locale, candidate = {}, sourceQuali
     // that happens first. A term absent beside a requirement met is the pairing this
     // card exists to make visible, and separating them would hide it.
     renderScreening(evidence.screening, locale),
+    // The screening card asks whether this CV survives the posting's own filter; this
+    // one asks what the employer's market filters on that the posting never wrote
+    // down. Same question, other side, so they read together.
+    renderMarketNotes(evidence.marketNotes, locale),
     renderCards(t(locale, "aiStrengths"), evidence.strengths, (item) => titleAndSummary(item.title, item.summary), locale, "positive"),
     renderCards(t(locale, "aiGaps"), evidence.gaps, (item) => gapItem(item, locale), locale, "negative"),
     // Between the gaps and the plan: what is missing against this posting, then what
@@ -299,6 +304,39 @@ function renderScreening(screening, locale) {
   const list = rows ? `<ul class="screening-list">${rows}</ul>` : "";
   return `<section class="result-card"><h3>${escapeHtml(t(locale, "screeningHeading"))}</h3>
     <p class="meta">${escapeHtml(t(locale, "screeningNote"))}</p>${title}${list}</section>`;
+}
+
+const MARKET_NAME_KEY = { cn: "marketCn", nl_weu: "marketNlWeu" };
+
+/**
+ * What the employer's market screens on that this posting never said.
+ *
+ * Placed straight after the screening card because it is the same question from the
+ * other side: whether this CV's wording survives the posting's own filter, then what
+ * the market filters on that the posting never wrote down.
+ *
+ * The convention text comes from src/market/conventions.js and not from the reply.
+ * The model returns an id and a standing; everything the reader reads about the
+ * market itself was written by a person and dated. That is the whole reason this
+ * section is allowed to exist beside twelve others that each cite source text.
+ *
+ * The note under the heading is not politeness. Every other card on this page is
+ * derived from the posting, so without it a reader has every reason to read these as
+ * things the employer said.
+ */
+function renderMarketNotes(notes, locale) {
+  const rows = (notes || [])
+    .map((note) => ({ note, convention: conventionById(note?.conventionId) }))
+    .filter((row) => row.convention && row.note.cvStanding);
+  if (!rows.length) return "";
+  const marketName = t(locale, MARKET_NAME_KEY[rows[0].convention.market] || "");
+  const items = rows.map(({ note, convention }) => `<li class="market-note">
+      <p class="market-convention">${escapeHtml(convention.text[locale] || convention.text.en)}</p>
+      <p class="market-standing"><strong>${escapeHtml(t(locale, "marketYourStanding"))}</strong> ${escapeHtml(note.cvStanding)}</p>
+    </li>`).join("");
+  return `<section class="result-card"><h3>${escapeHtml(t(locale, "marketConventions"))}</h3>
+    <p class="meta">${escapeHtml(format(locale, "marketConventionsNote", { market: marketName }))}</p>
+    <ul class="market-list">${items}</ul></section>`;
 }
 
 const PRIORITY_ORDER = { now: 0, before_apply: 1, later: 2 };

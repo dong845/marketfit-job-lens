@@ -105,6 +105,10 @@ code { font-size: 11px; }
 .screening-list { display: grid; gap: 7px; list-style: none; margin: 0; padding: 0; }
 .screening-term { align-items: baseline; display: flex; flex-wrap: wrap; gap: 6px; }
 .screening-word { font-size: 12px; font-weight: 600; }
+.market-list { display: grid; gap: 10px; list-style: none; margin: 0; padding: 0; }
+.market-note { border-left: 2px solid var(--line); padding-left: 9px; }
+.market-convention { font-size: 12px; line-height: 1.45; }
+.market-standing { color: var(--muted); font-size: 12px; line-height: 1.45; margin-top: 3px; }
 .requirement-list, .action-list { display: grid; gap: 0; list-style: none; margin: 0; padding: 0; }
 .requirement, .action { border-top: 1px solid var(--line); display: grid; gap: 4px; padding: 10px 0 10px 10px; }
 .requirement:first-child, .action:first-child { border-top: 0; }

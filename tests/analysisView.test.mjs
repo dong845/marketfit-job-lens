@@ -467,3 +467,50 @@ test("an analysis with no screening section renders without one", () => {
   assert.equal(renderAnalysisHtml(withVerdict(), "en").includes("Whether your CV gets read"), false);
   assert.equal(renderAnalysisHtml(withVerdict({ screening: { titleMatch: null, terms: [] } }), "en").includes("Whether your CV gets read"), false);
 });
+
+test("market notes render the convention text from the table, not from the model", () => {
+  const html = renderAnalysisHtml(evidenceFixture({
+    marketNotes: [{ conventionId: "nl-motivation-letter", cvStanding: "No letter is mentioned anywhere.", evidence: [] }]
+  }), "en");
+  assert.match(html, /motivation letter/);
+  assert.match(html, /No letter is mentioned anywhere\./);
+  // The id is a machine token and must not reach the reader, exactly like a block ID.
+  assert.equal(/nl-motivation-letter/.test(html), false);
+});
+
+// Every other section on this page is derived from the posting, so a reader has every
+// reason to assume this one is too. The line saying otherwise is load-bearing.
+test("the market card always says the conventions are not from this posting", () => {
+  for (const locale of ["en", "zh"]) {
+    const html = renderAnalysisHtml(evidenceFixture({
+      marketNotes: [{ conventionId: "cn-venue-names", cvStanding: "The CV names no venue.", evidence: [] }]
+    }), locale);
+    assert.match(html, locale === "zh" ? /不来自本次招聘启事/ : /do not come from this posting/);
+    assert.match(html, locale === "zh" ? /中国内地/ : /mainland China/);
+  }
+});
+
+test("no market notes means no card at all", () => {
+  for (const marketNotes of [[], undefined]) {
+    const html = renderAnalysisHtml(evidenceFixture({ marketNotes }), "en");
+    assert.equal(/market-list/.test(html), false, JSON.stringify(marketNotes));
+  }
+});
+
+// The parser drops unknown ids, so this should be unreachable — but the view must not
+// render an empty bullet if it ever is.
+test("a note whose convention has no entry renders nothing", () => {
+  const html = renderAnalysisHtml(evidenceFixture({
+    marketNotes: [{ conventionId: "no-such-convention", cvStanding: "Orphaned.", evidence: [] }]
+  }), "en");
+  assert.equal(/market-list/.test(html), false);
+  assert.equal(/Orphaned/.test(html), false);
+});
+
+test("the market card sits directly after the screening card", () => {
+  const html = renderAnalysisHtml(evidenceFixture({
+    marketNotes: [{ conventionId: "nl-references-contacted", cvStanding: "No referees are listed.", evidence: [] }]
+  }), "en");
+  assert.ok(html.indexOf("screening-list") < html.indexOf("market-list"), "market notes read after the screening terms");
+  assert.ok(html.indexOf("market-list") < html.indexOf("finding-list"), "and before the strengths");
+});
