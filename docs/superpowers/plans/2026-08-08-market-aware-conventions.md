@@ -17,6 +17,7 @@
 - **No numbers in conventions.** Convention `text` and `appliesWhen` must contain no digit and no `%`. Enforced by `scripts/static-check.mjs` in Task 1.
 - **Field ceilings come from `FIELD_LIMITS`**, never from literals — `scripts/static-check.mjs` already fails the build on a bare `maxLength: <digits>` in `src/ai/schema.js`.
 - **Verification command for every task:** `npm run check` (runs `static-check.mjs`, then `node --test tests/*.test.mjs`, then `smoke-test.mjs`, then `audit.mjs`).
+  - **Exception, Task 1 only.** `scripts/audit.mjs:233-243` walks imports from the three extension entry points and fails on any unreachable `src/**/*.js`. Task 1 creates `src/market/` before anything imports it, so `audit.mjs` reports `unreachable src modules: src/market/conventions.js, src/market/resolveMarket.js` and nothing else. That is expected and self-resolving: Task 2 imports both from `src/ai/schema.js`, which is reachable from `src/sidepanel/sidepanel.js`. Task 1 therefore verifies with `npm run lint && npm test`, and **Task 2 must run the full `npm run check` and confirm the unreachable-modules failure is gone.** Any *other* audit failure at Task 1 is a real defect.
 - **Commit locally only.** Do not `git push`. Do not `git add -A` — stage the named paths.
 - Work happens on branch `market-aware-conventions`, which already carries the design doc at `docs/superpowers/specs/2026-08-08-market-aware-weighting-design.md`.
 
