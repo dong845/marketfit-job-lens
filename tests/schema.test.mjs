@@ -542,7 +542,7 @@ const ALWAYS_SENT = [
   ["who answers", /Every open question must say who holds the answer/],
   ["thin CV entries are yours", /Never file a thin CV entry under employer/],
   ["one to-do list", /suggestedActions is the single authoritative to-do list/],
-  ["screening feeds the plan", /a screening term the CV states in other words must appear there exactly once/],
+  ["screening feeds the plan", /a screening term the CV states in other words, or a market note's cvStanding must appear there exactly once/],
   ["block IDs stay out of prose", /Block IDs belong in the evidence arrays and nowhere else/],
   ["caps", /Prefer fewer, well-evidenced items over padding/]
 ];
@@ -795,6 +795,39 @@ test("a malformed market note costs that note and not the analysis", () => {
   assert.equal(parsed.marketNotes.length, 1);
   assert.equal(parsed.marketNotes[0].conventionId, "nl-references-contacted");
   assert.equal(parsed.requirements.length, 1, "the rest of the analysis is unaffected");
+});
+
+test("a resolved market puts its conventions and their ids in the prompt", async () => {
+  const { buildAnalyzePrompt } = await import("../src/ai/prompts.js");
+  const prompt = buildAnalyzePrompt(marketRequest("Leiden, NL"));
+  assert.match(prompt, /<market_conventions>/);
+  assert.match(prompt, /nl-motivation-letter/);
+  assert.match(prompt, /motivation letter/);
+  // The other market's conventions are not sent. A model shown both would be choosing
+  // the market, which is the resolver's job and is testable only where it happens.
+  assert.equal(/cn-venue-names/.test(prompt), false, "the other market's ids must not be sent");
+});
+
+// The pattern the location and work-authorization instructions already follow: an
+// instruction with nothing to act on is not sent, rather than sent and hedged.
+test("an unresolved market sends no market-convention instruction at all", async () => {
+  const { buildAnalyzePrompt } = await import("../src/ai/prompts.js");
+  for (const location of ["", "Remote", "Toronto, Canada", "Remote — Shanghai or Amsterdam"]) {
+    const prompt = buildAnalyzePrompt(marketRequest(location));
+    assert.equal(/<market_conventions>/.test(prompt), false, location);
+    assert.equal(/marketNotes is about/.test(prompt), false, location);
+  }
+});
+
+test("the market instruction fences off the CV-layout rule and the plan", async () => {
+  const { buildAnalyzePrompt } = await import("../src/ai/prompts.js");
+  const prompt = buildAnalyzePrompt(marketRequest("Shanghai, China"));
+  assert.match(prompt, /never about CV layout/);
+  assert.match(prompt, /Prefer the conventions where the CV stands weakly/);
+  assert.match(prompt, /never conclude from silence/i);
+  // suggestedActions stays the single authoritative to-do list, with market notes
+  // named in its enumeration rather than carrying advice of their own.
+  assert.match(prompt, /or a market note's cvStanding must appear there exactly once/);
 });
 
 test("an absent or non-array marketNotes parses as empty", () => {

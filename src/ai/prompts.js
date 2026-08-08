@@ -1,5 +1,7 @@
 import { RESULT_LIMITS, wireSchema } from "./schema.js";
 import { buildEvidenceBlockBundle } from "./evidenceBlocks.js";
+import { conventionsFor } from "../market/conventions.js";
+import { resolveMarket } from "../market/resolveMarket.js";
 
 export const AGENT_SYSTEM_POLICY = [
   "You are a read-only job-evidence analysis component.",
@@ -30,9 +32,35 @@ function declaredStatus(request) {
   return declared && declared !== "unknown" ? declared : "";
 }
 
+/**
+ * The conventions of the employer's market, asked for only where there are any.
+ *
+ * Same shape as the two conditional blocks below it: an instruction with nothing to
+ * act on is not sent. The conventions travel as data in their own fence, because
+ * they are the one input here that is neither the CV nor the posting — and the model
+ * is asked to place the CV against them, never to restate or extend them. What the
+ * reader sees comes from src/market/conventions.js directly.
+ */
+function marketConventionInstructions(conventions, outputLanguage) {
+  if (!conventions.length) return [];
+  return [
+    "marketNotes is about the hiring conventions of the employer's own market that this posting never states. It is not about the posting, and it is not about the candidate — never consider their nationality, age, country of education or any other protected attribute here or anywhere else.",
+    "Answer only the conventions supplied in market_conventions below, only where that convention's appliesWhen holds for this role, and return an empty array when none of them do. Never add a convention of your own, never restate one as stronger or more absolute than it is written, and never attach a number to one.",
+    "Return each answered convention's conventionId exactly as given. conventionId is a machine token of the same class as a block ID: it belongs in that field and must never appear in a sentence the reader sees.",
+    `Write cvStanding in ${outputLanguage}: where THIS CV stands against that convention, citing the CV blocks that show it. Do not restate the convention itself — the reader is shown its wording already, so a cvStanding that paraphrases it says nothing.`,
+    "Prefer the conventions where the CV stands weakly, or where its standing cannot be told from the document at all. A note reporting that the CV is already fine is the one the reader can do nothing with, and four of those turn this section into reassurance.",
+    "Where the CV shows nothing about a convention, say that the CV does not show it — never conclude from silence that the candidate lacks the thing. This is the rule already in force for gaps and for an absent screening term.",
+    "This section is about what the market weighs, never about CV layout. Length, photographs, dates and document format belong to the resume-tailoring item about market convention and must not be repeated here.",
+    "<market_conventions>",
+    JSON.stringify(conventions.map(({ id, text, appliesWhen }) => ({ conventionId: id, convention: text.en, appliesWhen }))),
+    "</market_conventions>"
+  ];
+}
+
 export function buildAnalyzePrompt(request) {
   const outputLanguage = request.options.language === "zh" ? "Chinese" : "English";
   const evidenceBlocks = buildEvidenceBlockBundle(request);
+  const conventions = conventionsFor(resolveMarket(request.input.job.location));
   return [
     "Analyze the untrusted JSON data supplied below.",
     `Write all analysis fields in ${outputLanguage}. Evidence blocks stay in their original source language.`,
@@ -109,6 +137,7 @@ export function buildAnalyzePrompt(request) {
     ...(request.input.job.location ? [
       "The market whose CV conventions matter is the employer's, and the posting states it — so read it from job.location rather than from anything the candidate said. Include exactly one resumeTailoring item about convention in that market where one genuinely applies: expected length, whether a photo, date of birth, nationality or marital status is normal or is a liability, and how dates and qualifications are written there. Say what to change and why it matters in that market. If you cannot name a convention that actually differs, omit the item rather than inventing one — and never turn this into a statement about visa or immigration policy."
     ] : []),
+    ...marketConventionInstructions(conventions, outputLanguage),
     "Type each stated condition by what the sentence is about, not by where the job is: sponsorship when the posting says whether it will or will not sponsor a visa, work_authorization when it requires an existing right to work somewhere, citizenship for a nationality condition, clearance for a security clearance, licence for a professional registration, and onsite_location only for a condition about physical presence such as relocation, office days, or a commutable radius. A sentence naming a country because that is where the right to work must already exist is work_authorization, not onsite_location.",
     // salary and employmentType were wired into the request deliberately — withholding
     // them hid decision facts like a band far below the candidate's level — but no
@@ -130,8 +159,10 @@ export function buildAnalyzePrompt(request) {
     // which is an instruction whatever field it sits in, and it was duplicating a
     // suggested action word for word. profileRisks is deliberately absent —
     // howToAddress is the true sentence to say if asked, not a task, and forcing one
-    // action per red flag would pad the plan with work nobody can do.
-    "suggestedActions is the single authoritative to-do list. Every instruction implied by a gap's howToClose, a resumeTailoring item, an uncertainty whose answeredBy is you, or a screening term the CV states in other words must appear there exactly once. Those fields carry the reason and the specifics; they must not restate the instruction as a second imperative. Do not pad the list to fill it — three real actions beat eight overlapping ones.",
+    // action per red flag would pad the plan with work nobody can do. marketNotes
+    // joined for the first reason: a convention the CV stands weakly against implies
+    // an edit, and an edit stated twice is one sentence charged to the reader twice.
+    "suggestedActions is the single authoritative to-do list. Every instruction implied by a gap's howToClose, a resumeTailoring item, an uncertainty whose answeredBy is you, a screening term the CV states in other words, or a market note's cvStanding must appear there exactly once. Those fields carry the reason and the specifics; they must not restate the instruction as a second imperative. Do not pad the list to fill it — three real actions beat eight overlapping ones.",
     "suggestedActions may include route and timing actions where the posting supports them: seeking a referral into the team, applying through the company's own site rather than an aggregator, or acting on the posting's age. When the verdict is stretch, at least one action must address how the candidate handles the main gap in the application itself, naming it rather than hiding it.",
     ...sourceQualityInstructions(request.input.sourceQuality),
     "For each evidence item, return only an object like {\"ref\":\"JD-004\"} or {\"ref\":\"CV-012\"}. Do not copy evidence text into the output.",
